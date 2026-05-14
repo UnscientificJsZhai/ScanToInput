@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="TokenSelectionView">
+        <attr name="tokenTextSize" format="dimension" />
+        <attr name="tokenTextColor" format="color" />
+        <attr name="tokenSelectedTextColor" format="color" />
+        <attr name="tokenBackgroundColor" format="color" />
+        <attr name="tokenSelectedBackgroundColor" format="color" />
+        <attr name="tokenPaddingHorizontal" format="dimension" />
+        <attr name="tokenPaddingVertical" format="dimension" />
+        <attr name="tokenCornerRadius" format="dimension" />
+        <attr name="tokenSpacingHorizontal" format="dimension" />
+        <attr name="tokenSpacingVertical" format="dimension" />
+    </declare-styleable>
+</resources>

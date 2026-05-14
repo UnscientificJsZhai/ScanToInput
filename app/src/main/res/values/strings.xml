@@ -1,3 +1,36 @@
 <resources>
     <string name="app_name">ScanToInput</string>
+    <string name="ime_name">ScanToInput</string>
+
+    <string name="action_open_url">Open URL</string>
+    <string name="action_connect_wifi">Connect Wi-Fi</string>
+    <string name="action_add_contact">Add Contact</string>
+    <string name="action_add_calendar">Add to Calendar</string>
+    <string name="action_send_email">Send Email</string>
+    <string name="action_dial_phone">Dial Phone</string>
+    <string name="action_send_sms">Send SMS</string>
+    <string name="action_open_map">Open Map</string>
+
+    <string name="undo">Undo</string>
+    <string name="next_scan">Next Scan</string>
+    <string name="space">Space</string>
+    <string name="enter">Enter</string>
+    <string name="copy">Copy</string>
+    <string name="non_text_qr">Non-text QR Code</string>
+    <string name="non_text_qr_launcher">Non-text QR code detected</string>
+    <string name="no_camera_permission">Camera permission missing</string>
+    <string name="copied_to_clipboard">Copied to clipboard</string>
+    <string name="camera_permission_rationale">ScanToInput needs camera permission to scan QR codes. Please grant the permission to continue.</string>
+    <string name="no_app_to_handle">No app found to handle this action</string>
+    <string name="cannot_perform_action">Cannot perform this action</string>
+    <string name="cannot_undo_safely">Cannot undo safely</string>
+
+    <string name="cd_camera_preview">Camera Preview</string>
+    <string name="cd_token_selection">Text Selection Area</string>
+    <string name="cd_copy_button">Copy selected text</string>
+    <string name="cd_quick_action_button">Perform quick action</string>
+    <string name="cd_undo_button">Undo last input</string>
+    <string name="cd_next_scan_button">Allow scanning the same QR code again</string>
+    <string name="cd_space_button">Input space</string>
+    <string name="cd_enter_button">Input enter or perform action</string>
 </resources>

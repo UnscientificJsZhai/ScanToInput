@@ -1,0 +1,36 @@
+<resources>
+    <string name="app_name">ScanToInput</string>
+    <string name="ime_name">扫码输入</string>
+
+    <string name="action_open_url">打开 URL</string>
+    <string name="action_connect_wifi">连接 Wi-Fi</string>
+    <string name="action_add_contact">添加联系人</string>
+    <string name="action_add_calendar">添加日历</string>
+    <string name="action_send_email">发送邮件</string>
+    <string name="action_dial_phone">拨打电话</string>
+    <string name="action_send_sms">发送短信</string>
+    <string name="action_open_map">打开地图</string>
+
+    <string name="undo">撤销</string>
+    <string name="next_scan">下一个扫码</string>
+    <string name="space">空格</string>
+    <string name="enter">回车</string>
+    <string name="copy">复制</string>
+    <string name="non_text_qr">非文本二维码</string>
+    <string name="non_text_qr_launcher">检测到非文本二维码</string>
+    <string name="no_camera_permission">缺少相机权限</string>
+    <string name="copied_to_clipboard">已复制到剪贴板</string>
+    <string name="camera_permission_rationale">ScanToInput 需要相机权限来扫描二维码。请授予权限以继续。</string>
+    <string name="no_app_to_handle">未找到可处理该操作的应用</string>
+    <string name="cannot_perform_action">无法执行该操作</string>
+    <string name="cannot_undo_safely">无法安全撤销</string>
+
+    <string name="cd_camera_preview">相机预览</string>
+    <string name="cd_token_selection">文本选择区域</string>
+    <string name="cd_copy_button">复制选中的文本</string>
+    <string name="cd_quick_action_button">执行快速操作</string>
+    <string name="cd_undo_button">撤销上次输入</string>
+    <string name="cd_next_scan_button">允许扫描下一个相同的二维码</string>
+    <string name="cd_space_button">输入空格</string>
+    <string name="cd_enter_button">输入回车或执行操作</string>
+</resources>
