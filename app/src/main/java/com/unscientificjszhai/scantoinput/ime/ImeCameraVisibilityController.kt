@@ -103,6 +103,20 @@ class ImeCameraVisibilityController(
         }
     }
 
+    /**
+     * 重新打开当前可见输入视图中的相机。
+     *
+     * @return 新的输入会话编号；如果当前不可见则返回 null。
+     */
+    fun restartActiveSession(): Int? {
+        if (!isTrulyVisible()) {
+            return null
+        }
+        currentSessionId++
+        onShouldStart(currentSessionId)
+        return currentSessionId
+    }
+
     private fun updateState() {
         if (isTrulyVisible()) {
             onShouldStart(currentSessionId)

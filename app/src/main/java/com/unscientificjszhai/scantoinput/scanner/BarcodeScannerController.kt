@@ -31,6 +31,7 @@ class BarcodeScannerController(private val context: Context) {
     private var scanner: BarcodeScanner? = null
 
     private var isStarted = false
+    private var startRequestId = 0
     private var resultCallback: ((ScanResult) -> Unit)? = null
 
     /**
@@ -48,37 +49,59 @@ class BarcodeScannerController(private val context: Context) {
      *
      * @param lifecycleOwner 生命周期所有者。
      * @param previewView 用于显示相机预览的 View。
+     * @param onCameraUnavailable 相机无法绑定或启动时的回调。
      * @param onResult 识别结果回调。
      */
     @Synchronized
     fun start(
         lifecycleOwner: LifecycleOwner,
         previewView: PreviewView,
+        onCameraUnavailable: (() -> Unit)? = null,
         onResult: (ScanResult) -> Unit
     ) {
         resultCallback = onResult
         if (isStarted) return
         isStarted = true
+        val requestId = ++startRequestId
 
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
             try {
-                cameraProvider = cameraProviderFuture.get()
-                if (isStarted) {
-                    bindCameraUseCases(lifecycleOwner, previewView)
+                val provider = cameraProviderFuture.get()
+                val shouldBind = synchronized(this) {
+                    if (isStarted && requestId == startRequestId) {
+                        cameraProvider = provider
+                        true
+                    } else {
+                        false
+                    }
+                }
+                if (shouldBind) {
+                    bindCameraUseCases(
+                        provider,
+                        lifecycleOwner,
+                        previewView,
+                        requestId,
+                        onCameraUnavailable
+                    )
                 }
             } catch (_: Exception) {
-                isStarted = false
+                handleCameraUnavailable(null, requestId, onCameraUnavailable)
             }
         }, ContextCompat.getMainExecutor(context))
     }
 
     private fun bindCameraUseCases(
+        provider: ProcessCameraProvider,
         lifecycleOwner: LifecycleOwner,
-        previewView: PreviewView
+        previewView: PreviewView,
+        requestId: Int,
+        onCameraUnavailable: (() -> Unit)?
     ) {
-        val provider = cameraProvider ?: return
-        val executor = analysisExecutor ?: return
+        val executor = analysisExecutor ?: run {
+            handleCameraUnavailable(provider, requestId, onCameraUnavailable)
+            return
+        }
 
         val preview = Preview.Builder()
             .build()
@@ -106,8 +129,38 @@ class BarcodeScannerController(private val context: Context) {
                 imageAnalysis
             )
         } catch (_: Exception) {
-            isStarted = false
+            handleCameraUnavailable(provider, requestId, onCameraUnavailable)
         }
+    }
+
+    /**
+     * 将相机启动失败统一清理为可再次启动的状态。
+     *
+     * @param provider 当前启动流程获得的相机提供者。
+     * @param requestId 当前启动请求编号，旧请求失败时不影响新请求。
+     * @param onCameraUnavailable 相机不可用回调。
+     */
+    @Synchronized
+    private fun handleCameraUnavailable(
+        provider: ProcessCameraProvider?,
+        requestId: Int?,
+        onCameraUnavailable: (() -> Unit)?
+    ) {
+        if (requestId != null && requestId != startRequestId) {
+            return
+        }
+        isStarted = false
+        resultCallback = null
+        try {
+            provider?.unbindAll()
+            if (provider == null) {
+                cameraProvider?.unbindAll()
+            }
+            cameraProvider = null
+        } catch (_: Exception) {
+            // 相机已经处于失败状态时，清理失败可以忽略，后续重试会重新绑定。
+        }
+        onCameraUnavailable?.invoke()
     }
 
     @OptIn(ExperimentalGetImage::class)
@@ -147,9 +200,15 @@ class BarcodeScannerController(private val context: Context) {
      */
     @Synchronized
     fun stop() {
+        startRequestId++
         isStarted = false
         resultCallback = null
-        cameraProvider?.unbindAll()
+        try {
+            cameraProvider?.unbindAll()
+        } catch (_: Exception) {
+            // 停止路径需要保持幂等，CameraX 已失败时忽略解绑异常。
+        }
+        cameraProvider = null
     }
 
     /**

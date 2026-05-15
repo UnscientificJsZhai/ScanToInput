@@ -6,6 +6,7 @@ import android.inputmethodservice.InputMethodService
 import android.view.View
 import android.widget.TextView
 import androidx.camera.view.PreviewView
+import androidx.camera.view.PreviewView.StreamState
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -23,6 +24,10 @@ import dagger.hilt.android.AndroidEntryPoint
 @AndroidEntryPoint
 class ScanInputMethodService : InputMethodService(), LifecycleOwner {
 
+    private companion object {
+        private const val CAMERA_RETRY_DELAY_MS = 300L
+    }
+
     private val lifecycleRegistry = LifecycleRegistry(this)
     override val lifecycle: Lifecycle get() = lifecycleRegistry
 
@@ -31,6 +36,8 @@ class ScanInputMethodService : InputMethodService(), LifecycleOwner {
 
     private var previewView: PreviewView? = null
     private var errorHint: TextView? = null
+    private var cameraClosedBackground: View? = null
+    private var cameraClosedText: TextView? = null
     private var undoButton: View? = null
 
     private var currentSessionId = -1
@@ -52,18 +59,78 @@ class ScanInputMethodService : InputMethodService(), LifecycleOwner {
                             Manifest.permission.CAMERA
                         ) == PackageManager.PERMISSION_GRANTED
                     ) {
-                        scannerController.start(this, preview) { result ->
-                            handleScanResult(result, sessionId)
-                        }
+                        scannerController.start(
+                            this,
+                            preview,
+                            onResult = { result ->
+                                handleScanResult(result, sessionId)
+                            },
+                            onCameraUnavailable = {
+                                showCameraClosedFallback()
+                            }
+                        )
+                        updateCameraClosedFallback()
                     } else {
                         errorHint?.text = getString(R.string.no_camera_permission)
                         errorHint?.visibility = View.VISIBLE
+                        showCameraClosedFallback()
                     }
                 }
             },
             onShouldStop = { _ ->
                 scannerController.stop()
+                hideCameraClosedFallback()
             }
+        )
+    }
+
+    /**
+     * 根据相机预览流状态刷新相机关闭兜底层。
+     */
+    private fun updateCameraClosedFallback() {
+        val preview = previewView ?: return
+        if (!visibilityController.isTrulyVisible()) {
+            hideCameraClosedFallback()
+            return
+        }
+
+        if (preview.previewStreamState.value == StreamState.STREAMING) {
+            hideCameraClosedFallback()
+        } else {
+            showCameraClosedFallback()
+        }
+    }
+
+    /**
+     * 显示相机关闭兜底层。
+     */
+    private fun showCameraClosedFallback() {
+        cameraClosedBackground?.visibility = View.VISIBLE
+        cameraClosedText?.visibility = View.VISIBLE
+    }
+
+    /**
+     * 隐藏相机关闭兜底层。
+     */
+    private fun hideCameraClosedFallback() {
+        cameraClosedBackground?.visibility = View.GONE
+        cameraClosedText?.visibility = View.GONE
+    }
+
+    /**
+     * 清理当前相机绑定，并在 CameraX 有机会完成解绑后重新请求启动。
+     */
+    private fun retryOpenCamera() {
+        scannerController.stop()
+        showCameraClosedFallback()
+        cameraClosedText?.postDelayed(
+            {
+                if (visibilityController.isTrulyVisible()) {
+                    visibilityController.restartActiveSession()
+                    updateCameraClosedFallback()
+                }
+            },
+            CAMERA_RETRY_DELAY_MS
         )
     }
 
@@ -105,7 +172,18 @@ class ScanInputMethodService : InputMethodService(), LifecycleOwner {
         val root = android.view.LayoutInflater.from(dynamicContext).inflate(R.layout.input_method, null)
         previewView = root.findViewById(R.id.preview_view)
         errorHint = root.findViewById(R.id.error_hint)
+        cameraClosedBackground = root.findViewById(R.id.camera_closed_background)
+        cameraClosedText = root.findViewById(R.id.camera_closed_text)
         undoButton = root.findViewById(R.id.undo_button)
+
+        previewView?.previewStreamState?.removeObservers(this)
+        previewView?.previewStreamState?.observe(this) { streamState ->
+            if (streamState == StreamState.STREAMING) {
+                hideCameraClosedFallback()
+            } else {
+                updateCameraClosedFallback()
+            }
+        }
 
         root.findViewById<View>(R.id.undo_button).setOnClickListener {
             performUndo()
@@ -136,6 +214,10 @@ class ScanInputMethodService : InputMethodService(), LifecycleOwner {
 
         previewView?.setOnClickListener {
             visibilityController.notifyActive()
+        }
+
+        cameraClosedText?.setOnClickListener {
+            retryOpenCamera()
         }
 
         val navigationBarSpacer = root.findViewById<View>(R.id.navigation_bar_spacer)
@@ -170,6 +252,7 @@ class ScanInputMethodService : InputMethodService(), LifecycleOwner {
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         visibilityController.onWindowVisibilityChanged(true)
+        updateCameraClosedFallback()
     }
 
     override fun onWindowHidden() {
@@ -177,6 +260,7 @@ class ScanInputMethodService : InputMethodService(), LifecycleOwner {
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
         visibilityController.onWindowVisibilityChanged(false)
+        hideCameraClosedFallback()
     }
 
     private fun performUndo() {
@@ -190,7 +274,7 @@ class ScanInputMethodService : InputMethodService(), LifecycleOwner {
             updateUndoButton()
             visibilityController.notifyActive()
         } else {
-            // Cannot undo safely
+            // 当前光标前文本不匹配时不能安全撤销。
             android.widget.Toast.makeText(this, R.string.cannot_undo_safely, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
@@ -198,11 +282,13 @@ class ScanInputMethodService : InputMethodService(), LifecycleOwner {
     override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         visibilityController.onStartInputView()
+        updateCameraClosedFallback()
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         visibilityController.onFinishInputView()
+        hideCameraClosedFallback()
     }
 
     override fun onDestroy() {

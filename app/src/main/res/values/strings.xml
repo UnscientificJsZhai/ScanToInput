@@ -16,6 +16,8 @@
     <string name="space">Space</string>
     <string name="enter">Enter</string>
     <string name="copy">Copy</string>
+    <string name="ime_top_bar_title">Scan QR code to input text</string>
+    <string name="camera_closed">Camera is off</string>
     <string name="non_text_qr">Non-text QR Code</string>
     <string name="non_text_qr_launcher">Non-text QR code detected</string>
     <string name="no_camera_permission">Camera permission missing</string>

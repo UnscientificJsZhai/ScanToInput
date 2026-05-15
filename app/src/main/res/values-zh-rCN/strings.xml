@@ -16,6 +16,8 @@
     <string name="space">空格</string>
     <string name="enter">回车</string>
     <string name="copy">复制</string>
+    <string name="ime_top_bar_title">扫描二维码输入文本</string>
+    <string name="camera_closed">相机已关闭</string>
     <string name="non_text_qr">非文本二维码</string>
     <string name="non_text_qr_launcher">检测到非文本二维码</string>
     <string name="no_camera_permission">缺少相机权限</string>
