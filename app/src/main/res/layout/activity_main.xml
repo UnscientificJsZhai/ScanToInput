@@ -45,15 +45,15 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:contentDescription="@string/cd_token_selection"
-                app:tokenBackgroundColor="#F5F5F5"
+                app:tokenBackgroundColor="?attr/colorSurfaceVariant"
                 app:tokenCornerRadius="8dp"
                 app:tokenPaddingHorizontal="10dp"
                 app:tokenPaddingVertical="6dp"
-                app:tokenSelectedBackgroundColor="#B2DFDB"
-                app:tokenSelectedTextColor="#004D40"
+                app:tokenSelectedBackgroundColor="?attr/colorPrimaryContainer"
+                app:tokenSelectedTextColor="?attr/colorOnPrimaryContainer"
                 app:tokenSpacingHorizontal="6dp"
                 app:tokenSpacingVertical="6dp"
-                app:tokenTextColor="#212121"
+                app:tokenTextColor="?attr/colorOnSurfaceVariant"
                 app:tokenTextSize="16sp" />
 
             <TextView
@@ -62,7 +62,7 @@
                 android:layout_height="wrap_content"
                 android:gravity="center"
                 android:text="@string/non_text_qr_launcher"
-                android:textColor="#FF0000"
+                android:textColor="?attr/colorError"
                 android:visibility="gone"
                 tools:visibility="visible" />
         </LinearLayout>
@@ -74,21 +74,27 @@
         android:layout_height="wrap_content"
         android:gravity="center"
         android:orientation="horizontal"
-        android:padding="8dp"
+        android:padding="16dp"
         app:layout_constraintBottom_toBottomOf="parent">
 
         <Button
             android:id="@+id/copy_button"
-            android:layout_width="wrap_content"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:minHeight="56dp"
             android:contentDescription="@string/cd_copy_button"
             android:text="@string/copy" />
 
         <Button
             android:id="@+id/quick_action_button"
-            android:layout_width="wrap_content"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:minHeight="56dp"
             android:contentDescription="@string/cd_quick_action_button"
             android:visibility="gone"
             tools:text="Open URL"

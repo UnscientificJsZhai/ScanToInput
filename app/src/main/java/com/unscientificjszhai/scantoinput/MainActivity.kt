@@ -26,9 +26,14 @@ import com.unscientificjszhai.scantoinput.text.TextProcessor
 import com.unscientificjszhai.scantoinput.widget.TokenSelectionView
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.core.view.isVisible
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 
 import android.provider.Settings
 import androidx.appcompat.app.AlertDialog
+import com.google.android.material.color.DynamicColors
 
 /**
  * 扫码启动器页面。
@@ -61,6 +66,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 接入 Material You 动态颜色
+        DynamicColors.applyToActivityIfAvailable(this)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
 
         previewView = findViewById(R.id.preview_view)
@@ -68,6 +76,13 @@ class MainActivity : AppCompatActivity() {
         errorHint = findViewById(R.id.error_hint)
         copyButton = findViewById(R.id.copy_button)
         quickActionButton = findViewById(R.id.quick_action_button)
+
+        val buttonRow: View = findViewById(R.id.button_row)
+        ViewCompat.setOnApplyWindowInsetsListener(buttonRow) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.updatePadding(bottom = systemBars.bottom + dpToPx(8f).toInt())
+            insets
+        }
 
         scannerController = BarcodeScannerController(this)
 
@@ -258,6 +273,14 @@ class MainActivity : AppCompatActivity() {
             1f
         )
         return durationScale > 0
+    }
+
+    private fun dpToPx(dp: Float): Float {
+        return android.util.TypedValue.applyDimension(
+            android.util.TypedValue.COMPLEX_UNIT_DIP,
+            dp,
+            resources.displayMetrics
+        )
     }
 
     override fun onStop() {
