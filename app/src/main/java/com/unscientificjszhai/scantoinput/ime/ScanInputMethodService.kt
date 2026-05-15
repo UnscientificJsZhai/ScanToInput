@@ -7,10 +7,13 @@ import android.view.View
 import android.widget.TextView
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import com.unscientificjszhai.scantoinput.R
+import com.google.android.material.color.DynamicColors
 import com.unscientificjszhai.scantoinput.scanner.BarcodeScannerController
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -93,11 +96,13 @@ class ScanInputMethodService : InputMethodService(), LifecycleOwner {
 
     private fun updateUndoButton() {
         undoButton?.isEnabled = undoStack.isNotEmpty()
-        undoButton?.alpha = if (undoStack.isNotEmpty()) 1.0f else 0.5f
+        undoButton?.alpha = if (undoStack.isNotEmpty()) 0.8f else 0.4f
     }
 
     override fun onCreateInputView(): View {
-        val root = layoutInflater.inflate(R.layout.input_method, null)
+        val themedContext = android.view.ContextThemeWrapper(this, R.style.Theme_ScanToInput_IME)
+        val dynamicContext = DynamicColors.wrapContextIfAvailable(themedContext)
+        val root = android.view.LayoutInflater.from(dynamicContext).inflate(R.layout.input_method, null)
         previewView = root.findViewById(R.id.preview_view)
         errorHint = root.findViewById(R.id.error_hint)
         undoButton = root.findViewById(R.id.undo_button)
@@ -131,6 +136,14 @@ class ScanInputMethodService : InputMethodService(), LifecycleOwner {
 
         previewView?.setOnClickListener {
             visibilityController.notifyActive()
+        }
+
+        val navigationBarSpacer = root.findViewById<View>(R.id.navigation_bar_spacer)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            navigationBarSpacer.layoutParams.height = navBars.bottom
+            navigationBarSpacer.requestLayout()
+            insets
         }
 
         root.viewTreeObserver.addOnWindowFocusChangeListener { hasFocus ->

@@ -6,4 +6,8 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
+
+    <style name="Theme.ScanToInput.IME" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- IME specific configurations can go here -->
+    </style>
 </resources>

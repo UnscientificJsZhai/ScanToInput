@@ -1,8 +1,5 @@
 package com.unscientificjszhai.scantoinput.ime
 
-import android.os.Handler
-import android.os.Looper
-
 /**
  * 输入法相机可见性控制器。
  *
@@ -12,25 +9,12 @@ class ImeCameraVisibilityController(
     private val onShouldStart: (Int) -> Unit,
     private val onShouldStop: (Int) -> Unit
 ) {
-    companion object {
-        /**
-         * 相机空闲释放超时时间（毫秒）。
-         */
-        private const val IDLE_RELEASE_TIMEOUT_MS = 10_000L
-    }
-
     private var isViewCreated = false
     private var isViewAttached = false
     private var isWindowVisible = false
     private var isInputStarted = false
-    private var isFocused = false
 
     private var currentSessionId = 0
-    private val handler = Handler(Looper.getMainLooper())
-    private val idleRunnable = Runnable {
-        // 超时释放相机，虽然窗口可能仍可见，但视为失焦或非活跃
-        onShouldStop(currentSessionId)
-    }
 
     /**
      * 判断输入法界面是否真正可见。
@@ -89,7 +73,7 @@ class ImeCameraVisibilityController(
      * @param focused 是否获得焦点。
      */
     fun onWindowFocusChanged(focused: Boolean) {
-        isFocused = focused
+        // 焦点状态目前不再直接控制相机的启停，但保留接口以便后续扩展
         updateState()
     }
 
@@ -115,35 +99,15 @@ class ImeCameraVisibilityController(
      */
     fun notifyActive() {
         if (isTrulyVisible()) {
-            if (isFocused) {
-                stopIdleTimer()
-            } else {
-                startIdleTimer()
-            }
             onShouldStart(currentSessionId)
         }
     }
 
     private fun updateState() {
-        if (isTrulyVisible() && isFocused) {
-            stopIdleTimer()
+        if (isTrulyVisible()) {
             onShouldStart(currentSessionId)
-        } else if (isTrulyVisible() && !isFocused) {
-            // 可见但无焦点，保持当前状态并启动倒计时
-            startIdleTimer()
         } else {
-            // 不可见，立即停止
-            stopIdleTimer()
             onShouldStop(currentSessionId)
         }
-    }
-
-    private fun startIdleTimer() {
-        handler.removeCallbacks(idleRunnable)
-        handler.postDelayed(idleRunnable, IDLE_RELEASE_TIMEOUT_MS)
-    }
-
-    private fun stopIdleTimer() {
-        handler.removeCallbacks(idleRunnable)
     }
 }

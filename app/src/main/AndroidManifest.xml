@@ -79,7 +79,8 @@
             android:name=".ime.ScanInputMethodService"
             android:exported="true"
             android:label="@string/ime_name"
-            android:permission="android.permission.BIND_INPUT_METHOD">
+            android:permission="android.permission.BIND_INPUT_METHOD"
+            android:theme="@style/Theme.ScanToInput.IME">
             <intent-filter>
                 <action android:name="android.view.InputMethod" />
             </intent-filter>

@@ -2,7 +2,7 @@
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="320dp">
+    android:layout_height="wrap_content">
 
     <androidx.camera.view.PreviewView
         android:id="@+id/preview_view"
@@ -19,40 +19,39 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_margin="8dp"
-        android:background="#80FF0000"
+        android:background="?attr/colorError"
+        android:alpha="0.8"
         android:paddingHorizontal="8dp"
         android:paddingVertical="4dp"
         android:text="@string/non_text_qr"
-        android:textColor="#FFFFFF"
+        android:textColor="?attr/colorOnError"
         android:textSize="12sp"
         android:visibility="gone"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/undo_button"
-        style="@style/Widget.Material3.Button.TextButton"
+        style="@style/Widget.Material3.Button.TonalButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="16dp"
-        android:backgroundTint="#80000000"
+        android:alpha="0.8"
         android:contentDescription="@string/cd_undo_button"
         android:text="@string/undo"
-        android:textColor="#FFFFFF"
         app:layout_constraintBottom_toBottomOf="@+id/preview_view"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="@+id/preview_view" />
 
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/next_scan_button"
-        style="@style/Widget.Material3.Button.TextButton"
+        style="@style/Widget.Material3.Button.TonalButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginEnd="16dp"
-        android:backgroundTint="#80000000"
+        android:alpha="0.8"
         android:contentDescription="@string/cd_next_scan_button"
         android:text="@string/next_scan"
-        android:textColor="#FFFFFF"
         app:layout_constraintBottom_toBottomOf="@+id/preview_view"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="@+id/preview_view" />
@@ -62,13 +61,12 @@
         android:layout_width="match_parent"
         android:layout_height="64dp"
         android:background="?attr/colorSurface"
-        android:elevation="4dp"
         android:gravity="center"
         android:orientation="horizontal"
         android:paddingHorizontal="8dp"
-        app:layout_constraintBottom_toBottomOf="parent">
+        app:layout_constraintBottom_toTopOf="@+id/navigation_bar_spacer">
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/space_button"
             style="@style/Widget.Material3.Button.TonalButton"
             android:layout_width="0dp"
@@ -78,7 +76,7 @@
             android:contentDescription="@string/cd_space_button"
             android:text="@string/space" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/enter_button"
             style="@style/Widget.Material3.Button"
             android:layout_width="0dp"
@@ -88,5 +86,12 @@
             android:contentDescription="@string/cd_enter_button"
             android:text="@string/enter" />
     </LinearLayout>
+
+    <View
+        android:id="@+id/navigation_bar_spacer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:background="?attr/colorSurface"
+        app:layout_constraintBottom_toBottomOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
