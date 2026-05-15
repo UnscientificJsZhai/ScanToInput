@@ -53,6 +53,9 @@ class TokenSelectionView @JvmOverloads constructor(
     private var tokenCornerRadius = dpToPx(4f)
     private var tokenSpacingHorizontal = dpToPx(4f)
     private var tokenSpacingVertical = dpToPx(4f)
+    private val placeholderText = runCatching {
+        context.getString(R.string.token_selection_placeholder)
+    }.getOrDefault("扫描二维码以读取文本")
 
     // 绘制资源
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -83,16 +86,42 @@ class TokenSelectionView @JvmOverloads constructor(
             0, 0
         ).apply {
             try {
-                tokenTextSize = getDimension(R.styleable.TokenSelectionView_tokenTextSize, tokenTextSize)
-                tokenTextColor = getColor(R.styleable.TokenSelectionView_tokenTextColor, tokenTextColor)
-                tokenSelectedTextColor = getColor(R.styleable.TokenSelectionView_tokenSelectedTextColor, tokenSelectedTextColor)
-                tokenBackgroundColor = getColor(R.styleable.TokenSelectionView_tokenBackgroundColor, tokenBackgroundColor)
-                tokenSelectedBackgroundColor = getColor(R.styleable.TokenSelectionView_tokenSelectedBackgroundColor, tokenSelectedBackgroundColor)
-                tokenPaddingHorizontal = getDimension(R.styleable.TokenSelectionView_tokenPaddingHorizontal, tokenPaddingHorizontal)
-                tokenPaddingVertical = getDimension(R.styleable.TokenSelectionView_tokenPaddingVertical, tokenPaddingVertical)
-                tokenCornerRadius = getDimension(R.styleable.TokenSelectionView_tokenCornerRadius, tokenCornerRadius)
-                tokenSpacingHorizontal = getDimension(R.styleable.TokenSelectionView_tokenSpacingHorizontal, tokenSpacingHorizontal)
-                tokenSpacingVertical = getDimension(R.styleable.TokenSelectionView_tokenSpacingVertical, tokenSpacingVertical)
+                tokenTextSize =
+                    getDimension(R.styleable.TokenSelectionView_tokenTextSize, tokenTextSize)
+                tokenTextColor =
+                    getColor(R.styleable.TokenSelectionView_tokenTextColor, tokenTextColor)
+                tokenSelectedTextColor = getColor(
+                    R.styleable.TokenSelectionView_tokenSelectedTextColor,
+                    tokenSelectedTextColor
+                )
+                tokenBackgroundColor = getColor(
+                    R.styleable.TokenSelectionView_tokenBackgroundColor,
+                    tokenBackgroundColor
+                )
+                tokenSelectedBackgroundColor = getColor(
+                    R.styleable.TokenSelectionView_tokenSelectedBackgroundColor,
+                    tokenSelectedBackgroundColor
+                )
+                tokenPaddingHorizontal = getDimension(
+                    R.styleable.TokenSelectionView_tokenPaddingHorizontal,
+                    tokenPaddingHorizontal
+                )
+                tokenPaddingVertical = getDimension(
+                    R.styleable.TokenSelectionView_tokenPaddingVertical,
+                    tokenPaddingVertical
+                )
+                tokenCornerRadius = getDimension(
+                    R.styleable.TokenSelectionView_tokenCornerRadius,
+                    tokenCornerRadius
+                )
+                tokenSpacingHorizontal = getDimension(
+                    R.styleable.TokenSelectionView_tokenSpacingHorizontal,
+                    tokenSpacingHorizontal
+                )
+                tokenSpacingVertical = getDimension(
+                    R.styleable.TokenSelectionView_tokenSpacingVertical,
+                    tokenSpacingVertical
+                )
             } finally {
                 recycle()
             }
@@ -161,8 +190,15 @@ class TokenSelectionView @JvmOverloads constructor(
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val widthMode = MeasureSpec.getMode(widthMeasureSpec)
 
-        if (widthMode == MeasureSpec.UNSPECIFIED || tokens.isEmpty()) {
+        if (widthMode == MeasureSpec.UNSPECIFIED) {
             setMeasuredDimension(0, 0)
+            return
+        }
+
+        if (tokens.isEmpty()) {
+            layoutInfos = emptyArray()
+            lastMeasuredWidth = width
+            setMeasuredDimension(width, resolveSize(placeholderHeight(), heightMeasureSpec))
             return
         }
 
@@ -233,21 +269,64 @@ class TokenSelectionView @JvmOverloads constructor(
     }
 
     override fun onDraw(canvas: Canvas) {
-        if (tokens.isEmpty() || layoutInfos.size != tokens.size) return
+        if (tokens.isEmpty()) {
+            drawPlaceholder(canvas)
+            return
+        }
+
+        if (layoutInfos.size != tokens.size) return
 
         for (i in tokens.indices) {
             val info = layoutInfos[i]
             val isSelected = selectionState.get(i)
 
             // 绘制背景
-            backgroundPaint.color = if (isSelected) tokenSelectedBackgroundColor else tokenBackgroundColor
+            backgroundPaint.color =
+                if (isSelected) tokenSelectedBackgroundColor else tokenBackgroundColor
             rectF.set(info.x, info.y, info.x + info.width, info.y + info.height)
             canvas.drawRoundRect(rectF, tokenCornerRadius, tokenCornerRadius, backgroundPaint)
 
             // 绘制文字
             textPaint.color = if (isSelected) tokenSelectedTextColor else tokenTextColor
-            canvas.drawText(tokens[i], info.x + tokenPaddingHorizontal, info.y + info.baseline, textPaint)
+            canvas.drawText(
+                tokens[i],
+                info.x + tokenPaddingHorizontal,
+                info.y + info.baseline,
+                textPaint
+            )
         }
+    }
+
+    /**
+     * 计算占位文案展示所需的最小高度。
+     *
+     * @return 包含上下内边距的占位区域高度。
+     */
+    private fun placeholderHeight(): Int {
+        val fontMetrics = textPaint.fontMetrics
+        return (fontMetrics.bottom - fontMetrics.top + paddingTop + paddingBottom + tokenPaddingVertical * 2).toInt()
+    }
+
+    /**
+     * 绘制空列表状态下的占位文案。
+     *
+     * @param canvas 用于绘制占位文案的画布。
+     */
+    private fun drawPlaceholder(canvas: Canvas) {
+        val fontMetrics = textPaint.fontMetrics
+        val contentWidth = width - paddingLeft - paddingRight
+        val contentHeight = height - paddingTop - paddingBottom
+
+        // 计算水平居中位置
+        val textWidth = textPaint.measureText(placeholderText)
+        val x = paddingLeft + (contentWidth - textWidth) / 2f
+
+        // 计算垂直居中位置（基准线）
+        val baseline =
+            paddingTop + (contentHeight - fontMetrics.bottom + fontMetrics.top) / 2f - fontMetrics.top
+
+        textPaint.color = tokenTextColor
+        canvas.drawText(placeholderText, x, baseline, textPaint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -262,6 +341,7 @@ class TokenSelectionView @JvmOverloads constructor(
                     return true
                 }
             }
+
             MotionEvent.ACTION_MOVE -> {
                 if (isDragging) {
                     val index = findTokenAt(x, y)
@@ -272,6 +352,7 @@ class TokenSelectionView @JvmOverloads constructor(
                     return true
                 }
             }
+
             MotionEvent.ACTION_UP -> {
                 if (isDragging) {
                     endDragSelection()
@@ -279,6 +360,7 @@ class TokenSelectionView @JvmOverloads constructor(
                     return true
                 }
             }
+
             MotionEvent.ACTION_CANCEL -> {
                 if (isDragging) {
                     endDragSelection()

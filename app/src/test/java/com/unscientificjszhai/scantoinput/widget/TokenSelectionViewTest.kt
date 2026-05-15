@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -18,6 +19,19 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class TokenSelectionViewTest {
+
+    /**
+     * 验证空 Token 列表仍保留占位文案的可见区域。
+     */
+    @Test
+    fun emptyTokenListKeepsPlaceholderVisible() {
+        val context = RuntimeEnvironment.getApplication()
+        val parent = InterceptRecordingLayout(context)
+        val view = measuredTokenSelectionView(context, parent, emptyList())
+
+        assertEquals(480, view.measuredWidth)
+        assertTrue(view.measuredHeight > 0)
+    }
 
     /**
      * 验证连续选择手势期间父容器不会拦截触摸事件。

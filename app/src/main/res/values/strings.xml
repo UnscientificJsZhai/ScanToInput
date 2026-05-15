@@ -24,6 +24,7 @@
     <string name="no_app_to_handle">No app found to handle this action</string>
     <string name="cannot_perform_action">Cannot perform this action</string>
     <string name="cannot_undo_safely">Cannot undo safely</string>
+    <string name="token_selection_placeholder">Scan a QR code to read text</string>
 
     <string name="cd_camera_preview">Camera Preview</string>
     <string name="cd_token_selection">Text Selection Area</string>
