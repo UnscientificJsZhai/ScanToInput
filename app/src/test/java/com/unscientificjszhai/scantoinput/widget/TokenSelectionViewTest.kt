@@ -118,15 +118,11 @@ class TokenSelectionViewTest {
      * @return 指定 Token 的水平中心坐标。
      */
     private fun tokenCenterX(view: TokenSelectionView, index: Int): Float {
-        val layoutInfosField = TokenSelectionView::class.java.getDeclaredField("layoutInfos")
-        layoutInfosField.isAccessible = true
-        val layoutInfos = layoutInfosField.get(view) as Array<*>
-        val info = layoutInfos[index] ?: error("Token layout info missing")
-        val xField = info.javaClass.getDeclaredField("x")
-        val widthField = info.javaClass.getDeclaredField("width")
-        xField.isAccessible = true
-        widthField.isAccessible = true
-        return xField.getFloat(info) + widthField.getFloat(info) / 2f
+        val engineField = TokenSelectionView::class.java.getDeclaredField("engine")
+        engineField.isAccessible = true
+        val engine = engineField.get(view) as TokenSelectionEngine
+        val info = engine.layoutInfos[index]
+        return info.x + info.width / 2f
     }
 
     /**

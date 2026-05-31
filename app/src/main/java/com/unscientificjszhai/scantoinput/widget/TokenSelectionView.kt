@@ -39,8 +39,7 @@ class TokenSelectionView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
-    private var tokens: List<String> = emptyList()
-    private val selectionState = BitSet()
+    private val engine = TokenSelectionEngine()
 
     // 样式属性
     private var tokenTextSize = spToPx(14f)
@@ -63,19 +62,13 @@ class TokenSelectionView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
     private val rectF = RectF()
+    private val drawingRect = android.graphics.Rect()
 
     // 布局缓存
-    private var layoutInfos = emptyArray<TokenLayoutInfo>()
     private var lastMeasuredWidth = -1
 
     // 交互状态
-    private var isDragging = false
-    private var dragStartIndex = -1
-    private var dragRangeStart = -1
-    private var dragRangeEnd = -1
     private var lastTouchedIndex = -1
-    private var dragInitialSelectedState = false
-    private val dragSelectionSnapshot = BitSet()
 
     var onSelectionChangedListener: (() -> Unit)? = null
 
@@ -136,8 +129,7 @@ class TokenSelectionView @JvmOverloads constructor(
      * @param tokens 要显示的 token 列表。
      */
     fun setTokens(tokens: List<String>) {
-        this.tokens = tokens
-        selectionState.clear()
+        engine.setTokens(tokens)
         lastMeasuredWidth = -1 // 强制重新计算布局
         requestLayout()
         invalidate()
@@ -151,14 +143,7 @@ class TokenSelectionView @JvmOverloads constructor(
      * @return 拼接后的选中文本，如果没有选中则返回空字符串。
      */
     fun getSelectedText(): String {
-        if (selectionState.isEmpty) return ""
-        val sb = StringBuilder()
-        for (i in tokens.indices) {
-            if (selectionState.get(i)) {
-                sb.append(tokens[i])
-            }
-        }
-        return sb.toString()
+        return engine.getSelectedText()
     }
 
     /**
@@ -166,21 +151,20 @@ class TokenSelectionView @JvmOverloads constructor(
      *
      * @return 拼接后的全文。
      */
-    fun getFullText(): String = tokens.joinToString("")
+    fun getFullText(): String = engine.tokens.joinToString("")
 
     /**
      * 判断当前是否有任何 Token 被选中。
      *
      * @return 如果有至少一个选中则返回 true，否则返回 false。
      */
-    fun hasSelection(): Boolean = !selectionState.isEmpty
+    fun hasSelection(): Boolean = engine.hasSelection()
 
     /**
      * 清空当前所有的选择状态。
      */
     fun clearSelection() {
-        if (!selectionState.isEmpty) {
-            selectionState.clear()
+        if (engine.clearSelection()) {
             invalidate()
             onSelectionChangedListener?.invoke()
         }
@@ -195,8 +179,7 @@ class TokenSelectionView @JvmOverloads constructor(
             return
         }
 
-        if (tokens.isEmpty()) {
-            layoutInfos = emptyArray()
+        if (engine.tokens.isEmpty()) {
             lastMeasuredWidth = width
             setMeasuredDimension(width, resolveSize(placeholderHeight(), heightMeasureSpec))
             return
@@ -207,78 +190,53 @@ class TokenSelectionView @JvmOverloads constructor(
             lastMeasuredWidth = width
         }
 
-        val totalHeight = if (layoutInfos.isNotEmpty()) {
-            val last = layoutInfos.last()
-            (last.y + last.height + paddingTop + paddingBottom).toInt()
-        } else {
-            0
-        }
-
+        val totalHeight = (engine.totalHeight + paddingTop + paddingBottom).toInt()
         setMeasuredDimension(width, resolveSize(totalHeight, heightMeasureSpec))
     }
 
     /**
      * 计算所有 Token 的布局位置。
-     * 此方法在测量阶段调用，缓存结果以供绘制和触摸检测使用。
+     * 此方法在测量阶段调用，委托给 Engine 模块缓存结果。
      *
      * @param width 控件的总宽度。
      */
     private fun calculateLayout(width: Int) {
         val availableWidth = width - paddingLeft - paddingRight
-        var currentX = 0f
-        var currentY = 0f
-        var maxLineHeight = 0f
-
-        val infos = Array(tokens.size) { i ->
-            val token = tokens[i]
-            val textWidth = textPaint.measureText(token)
-            val tokenWidth = tokenWidth(textWidth)
-            val fontMetrics = textPaint.fontMetrics
-            val tokenHeight = (fontMetrics.bottom - fontMetrics.top) + tokenPaddingVertical * 2
-
-            if (currentX + tokenWidth > availableWidth && currentX > 0) {
-                currentX = 0f
-                currentY += maxLineHeight + tokenSpacingVertical
-                maxLineHeight = 0f
-            }
-
-            val info = TokenLayoutInfo(
-                currentX + paddingLeft,
-                currentY + paddingTop,
-                tokenWidth,
-                tokenHeight,
-                -fontMetrics.top + tokenPaddingVertical
-            )
-
-            currentX += tokenWidth + tokenSpacingHorizontal
-            maxLineHeight = max(maxLineHeight, tokenHeight)
-
-            info
-        }
-        layoutInfos = infos
-    }
-
-    /**
-     * 根据文字宽度计算 Token 的总宽度。
-     *
-     * @param textWidth 文字所占的宽度。
-     * @return 包含内边距的 Token 总宽度。
-     */
-    private fun tokenWidth(textWidth: Float): Float {
-        return textWidth + tokenPaddingHorizontal * 2
+        val fontMetrics = textPaint.fontMetrics
+        engine.calculateLayout(
+            availableWidth = availableWidth.toFloat(),
+            paddingLeft = paddingLeft.toFloat(),
+            paddingTop = paddingTop.toFloat(),
+            tokenSpacingHorizontal = tokenSpacingHorizontal,
+            tokenSpacingVertical = tokenSpacingVertical,
+            tokenPaddingHorizontal = tokenPaddingHorizontal,
+            tokenPaddingVertical = tokenPaddingVertical,
+            fontMetricsTop = fontMetrics.top,
+            fontMetricsBottom = fontMetrics.bottom,
+            measureTextWidth = { textPaint.measureText(it) }
+        )
     }
 
     override fun onDraw(canvas: Canvas) {
-        if (tokens.isEmpty()) {
+        if (engine.tokens.isEmpty()) {
             drawPlaceholder(canvas)
             return
         }
 
-        if (layoutInfos.size != tokens.size) return
+        if (engine.layoutInfos.size != engine.tokens.size) return
 
-        for (i in tokens.indices) {
-            val info = layoutInfos[i]
-            val isSelected = selectionState.get(i)
+        // 视口可见性分析优化绘制
+        getDrawingRect(drawingRect)
+        val visibleRange = engine.getVisibleTokenIndices(
+            drawingRect.top.toFloat(),
+            drawingRect.bottom.toFloat()
+        )
+
+        if (visibleRange.isEmpty()) return
+
+        for (i in visibleRange) {
+            val info = engine.layoutInfos[i]
+            val isSelected = engine.isSelected(i)
 
             // 绘制背景
             backgroundPaint.color =
@@ -289,7 +247,7 @@ class TokenSelectionView @JvmOverloads constructor(
             // 绘制文字
             textPaint.color = if (isSelected) tokenSelectedTextColor else tokenTextColor
             canvas.drawText(
-                tokens[i],
+                engine.tokens[i],
                 info.x + tokenPaddingHorizontal,
                 info.y + info.baseline,
                 textPaint
@@ -335,7 +293,7 @@ class TokenSelectionView @JvmOverloads constructor(
 
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
-                val index = findTokenAt(x, y)
+                val index = engine.findTokenAt(x, y)
                 if (index != -1) {
                     startDragSelection(index)
                     return true
@@ -343,8 +301,8 @@ class TokenSelectionView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
-                if (isDragging) {
-                    val index = findTokenAt(x, y)
+                if (engine.isDragging) {
+                    val index = engine.findTokenAt(x, y)
                     if (index != -1 && index != lastTouchedIndex) {
                         lastTouchedIndex = index
                         applyDragRange(index)
@@ -354,7 +312,7 @@ class TokenSelectionView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_UP -> {
-                if (isDragging) {
+                if (engine.isDragging) {
                     endDragSelection()
                     performClick()
                     return true
@@ -362,7 +320,7 @@ class TokenSelectionView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_CANCEL -> {
-                if (isDragging) {
+                if (engine.isDragging) {
                     endDragSelection()
                     return true
                 }
@@ -391,28 +349,21 @@ class TokenSelectionView @JvmOverloads constructor(
      * @param index 手势起点命中的 Token 索引。
      */
     private fun startDragSelection(index: Int) {
-        isDragging = true
         setParentDisallowInterceptTouchEvent(true)
-        dragStartIndex = index
-        dragRangeStart = -1
-        dragRangeEnd = -1
+        engine.startDragSelection(index)
         lastTouchedIndex = index
-        dragInitialSelectedState = !selectionState.get(index)
-        dragSelectionSnapshot.clear()
-        dragSelectionSnapshot.or(selectionState)
-        applyDragRange(index)
+        performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        invalidate()
+        onSelectionChangedListener?.invoke()
     }
 
     /**
      * 结束当前连续选择手势并清理临时状态。
      */
     private fun endDragSelection() {
-        isDragging = false
-        setParentDisallowInterceptTouchEvent(false)
-        dragStartIndex = -1
-        dragRangeStart = -1
-        dragRangeEnd = -1
+        engine.endDragSelection()
         lastTouchedIndex = -1
+        setParentDisallowInterceptTouchEvent(false)
     }
 
     /**
@@ -421,62 +372,11 @@ class TokenSelectionView @JvmOverloads constructor(
      * @param currentIndex 当前命中的 Token 索引。
      */
     private fun applyDragRange(currentIndex: Int) {
-        val newRangeStart = min(dragStartIndex, currentIndex)
-        val newRangeEnd = max(dragStartIndex, currentIndex)
-        var changed = false
-
-        if (dragRangeStart != -1) {
-            for (i in dragRangeStart..dragRangeEnd) {
-                if (i !in newRangeStart..newRangeEnd) {
-                    changed = setSelectionState(i, dragSelectionSnapshot.get(i)) || changed
-                }
-            }
-        }
-
-        for (i in newRangeStart..newRangeEnd) {
-            changed = setSelectionState(i, dragInitialSelectedState) || changed
-        }
-
-        dragRangeStart = newRangeStart
-        dragRangeEnd = newRangeEnd
-
-        if (changed) {
+        if (engine.applyDragRange(currentIndex)) {
             performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             invalidate()
             onSelectionChangedListener?.invoke()
         }
-    }
-
-    /**
-     * 查找指定坐标下的 Token 索引。
-     *
-     * @param x X 坐标。
-     * @param y Y 坐标。
-     * @return 命中的 Token 索引，如果未命中则返回 -1。
-     */
-    private fun findTokenAt(x: Float, y: Float): Int {
-        for (i in layoutInfos.indices) {
-            val info = layoutInfos[i]
-            if (x >= info.x && x <= info.x + info.width && y >= info.y && y <= info.y + info.height) {
-                return i
-            }
-        }
-        return -1
-    }
-
-    /**
-     * 设置指定 Token 的选择状态。
-     *
-     * @param index Token 索引。
-     * @param state 目标选中状态。
-     * @return 如果状态发生变化则返回 true，否则返回 false。
-     */
-    private fun setSelectionState(index: Int, state: Boolean): Boolean {
-        if (selectionState.get(index) == state) {
-            return false
-        }
-        selectionState.set(index, state)
-        return true
     }
 
     private fun dpToPx(dp: Float): Float {
@@ -487,21 +387,4 @@ class TokenSelectionView @JvmOverloads constructor(
     private fun spToPx(sp: Float): Float {
         return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, resources.displayMetrics)
     }
-
-    /**
-     * 内部类，存储单个 Token 的布局信息。
-     *
-     * @property x 起始 X 坐标。
-     * @property y 起始 Y 坐标。
-     * @property width Token 总宽度。
-     * @property height Token 总高度。
-     * @property baseline 文字绘制的基准线偏移。
-     */
-    private class TokenLayoutInfo(
-        val x: Float,
-        val y: Float,
-        val width: Float,
-        val height: Float,
-        val baseline: Float
-    )
 }
