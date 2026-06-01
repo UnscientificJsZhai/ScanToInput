@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.view.View
 import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
@@ -15,25 +16,25 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
+import androidx.core.view.updatePadding
+import com.google.android.material.color.DynamicColors
 import com.unscientificjszhai.scantoinput.actions.QuickAction
 import com.unscientificjszhai.scantoinput.actions.QuickActionIntentFactory
+import com.unscientificjszhai.scantoinput.launcher.LauncherResultPolicy
+import com.unscientificjszhai.scantoinput.launcher.LauncherResultUpdate
 import com.unscientificjszhai.scantoinput.scanner.BarcodeScannerController
 import com.unscientificjszhai.scantoinput.scanner.ScanResult
 import com.unscientificjszhai.scantoinput.text.TextProcessingResult
 import com.unscientificjszhai.scantoinput.text.TextProcessor
 import com.unscientificjszhai.scantoinput.widget.TokenSelectionView
 import dagger.hilt.android.AndroidEntryPoint
-import androidx.core.view.isVisible
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.updatePadding
-
-import android.provider.Settings
-import androidx.appcompat.app.AlertDialog
-import com.google.android.material.color.DynamicColors
 
 /**
  * 扫码启动器页面。
@@ -48,9 +49,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var copyButton: Button
     private lateinit var quickActionButton: Button
 
-    private var currentResult: TextProcessingResult.Success? = null
-    private var pendingResult: TextProcessingResult.Success? = null
-    private var isLocked = false
+    private val resultPolicy = LauncherResultPolicy()
     private val handler = Handler(Looper.getMainLooper())
     private var unlockRunnable: Runnable? = null
 
@@ -138,71 +137,69 @@ class MainActivity : AppCompatActivity() {
         when (result) {
             is ScanResult.Text -> {
                 val processed = TextProcessor.process(result.text)
-                if (processed is TextProcessingResult.Success) {
-                    updateResult(processed)
-                    errorHint.visibility = View.GONE
-                } else if (processed is TextProcessingResult.NonText) {
-                    errorHint.visibility = View.VISIBLE
-                }
+                applyLauncherResultUpdate(resultPolicy.onProcessedResult(processed))
             }
 
             ScanResult.NonText -> {
-                errorHint.visibility = View.VISIBLE
+                applyLauncherResultUpdate(
+                    resultPolicy.onProcessedResult(TextProcessingResult.NonText)
+                )
             }
         }
     }
 
-    private fun updateResult(newResult: TextProcessingResult.Success) {
-        // 相同内容不刷新
-        if (newResult.tokens.joinToString("") == currentResult?.tokens?.joinToString("")) {
-            return
+    /**
+     * 将启动器结果策略更新同步到 Android View。
+     *
+     * @param update 策略层返回的更新指令。
+     */
+    private fun applyLauncherResultUpdate(update: LauncherResultUpdate) {
+        if (update.resultChanged) {
+            tokenSelectionView.setTokens(update.renderState.currentResult?.tokens.orEmpty())
         }
-
-        if (isLocked) {
-            pendingResult = newResult
-            return
-        }
-
-        applyResult(newResult)
+        errorHint.visibility = if (update.renderState.nonTextHintVisible) View.VISIBLE else View.GONE
+        copyButton.isEnabled = update.renderState.copyEnabled
+        updateQuickActionButton(update.renderState.quickAction)
+        scheduleOrCancelUnlock(update)
     }
 
-    private fun applyResult(result: TextProcessingResult.Success) {
-        currentResult = result
-        tokenSelectionView.setTokens(result.tokens)
-        updateQuickActionButton(result)
-    }
-
-    private fun handleSelectionChanged() {
-        val hasSelection = tokenSelectionView.hasSelection()
-        if (hasSelection) {
-            isLocked = true
-            // 取消正在进行的解锁任务
+    /**
+     * 根据策略更新调度或取消解锁等待任务。
+     *
+     * @param update 策略层返回的更新指令。
+     */
+    private fun scheduleOrCancelUnlock(update: LauncherResultUpdate) {
+        if (update.cancelUnlock) {
             unlockRunnable?.let { handler.removeCallbacks(it) }
             unlockRunnable = null
-        } else {
-            // 开始 2 秒等待窗口
-            if (unlockRunnable == null) {
-                val runnable = Runnable {
-                    isLocked = false
-                    unlockRunnable = null
-                    // 解锁后如果有挂起的结果，应用它
-                    pendingResult?.let {
-                        applyResult(it)
-                        pendingResult = null
-                    }
-                }
-                unlockRunnable = runnable
-                handler.postDelayed(runnable, 2000)
+        }
+
+        val delayMillis = update.scheduleUnlockDelayMillis
+        if (delayMillis != null && unlockRunnable == null) {
+            val runnable = Runnable {
+                unlockRunnable = null
+                applyLauncherResultUpdate(resultPolicy.onUnlockTimeout())
             }
+            unlockRunnable = runnable
+            handler.postDelayed(runnable, delayMillis)
         }
     }
 
+    /**
+     * 处理 token 选择状态变化。
+     */
+    private fun handleSelectionChanged() {
+        applyLauncherResultUpdate(resultPolicy.onSelectionChanged(tokenSelectionView.hasSelection()))
+    }
+
+    /**
+     * 复制当前选择文本或当前显示结果全文。
+     */
     private fun copyText() {
-        val textToCopy = if (tokenSelectionView.hasSelection()) {
-            tokenSelectionView.getSelectedText()
-        } else {
-            tokenSelectionView.getFullText()
-        }
+        val textToCopy = resultPolicy.resolveCopyText(
+            hasSelection = tokenSelectionView.hasSelection(),
+            selectedText = tokenSelectionView.getSelectedText()
+        )
 
         if (textToCopy.isNotEmpty()) {
             val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
@@ -212,8 +209,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 执行当前显示结果关联的快速操作。
+     */
     private fun performQuickAction() {
-        val action = currentResult?.quickAction ?: return
+        val action = resultPolicy.currentState().quickAction ?: return
         val intent = QuickActionIntentFactory.createIntent(action)
 
         if (intent != null) {
@@ -232,8 +232,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateQuickActionButton(result: TextProcessingResult.Success) {
-        val action = result.quickAction
+    /**
+     * 更新快速操作按钮展示状态。
+     *
+     * @param action 当前显示结果关联的快速操作。
+     */
+    private fun updateQuickActionButton(action: QuickAction?) {
         val animatorDuration = if (areAnimationsEnabled()) 200L else 0L
 
         if (action != null) {
