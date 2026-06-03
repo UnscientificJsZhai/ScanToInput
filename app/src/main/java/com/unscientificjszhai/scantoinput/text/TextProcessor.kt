@@ -110,7 +110,24 @@ object TextProcessor {
             return QuickAction.Geo(text, query)
         }
 
+        // 9. 应用深链
+        if (isAppDeepLink(text)) {
+            return QuickAction.Url(text)
+        }
+
         return null
+    }
+
+    /**
+     * 判断文本是否为可通过外部应用打开的深链 URI。
+     *
+     * @param text 文本。
+     * @return 如果文本包含标准 URI scheme 且不属于应用不应转发的本地资源 scheme，返回 true。
+     */
+    private fun isAppDeepLink(text: String): Boolean {
+        val schemeMatch = Regex("^[a-zA-Z][a-zA-Z0-9+.-]*:").find(text) ?: return false
+        val scheme = schemeMatch.value.dropLast(1).lowercase()
+        return scheme != "file" && scheme != "content"
     }
 
     /**

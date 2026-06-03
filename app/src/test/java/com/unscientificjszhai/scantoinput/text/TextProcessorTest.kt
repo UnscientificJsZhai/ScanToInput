@@ -38,6 +38,19 @@ class TextProcessorTest {
     }
 
     @Test
+    fun testDetectAppDeepLink() {
+        val text = "exampleapp://open/item?id=1"
+        val result = TextProcessor.detectQuickAction(text)
+        assertTrue(result is QuickAction.Url)
+    }
+
+    @Test
+    fun testIgnoreLocalResourceDeepLink() {
+        assertTrue(TextProcessor.detectQuickAction("file:///sdcard/private.txt") == null)
+        assertTrue(TextProcessor.detectQuickAction("content://example/items/1") == null)
+    }
+
+    @Test
     fun testTokenizeBasic() {
         val text = "Hello, world!"
         val tokens = TextProcessor.tokenize(text)

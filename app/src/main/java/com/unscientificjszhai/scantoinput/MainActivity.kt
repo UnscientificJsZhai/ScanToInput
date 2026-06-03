@@ -1,6 +1,7 @@
 package com.unscientificjszhai.scantoinput
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.pm.PackageManager
@@ -218,15 +219,10 @@ class MainActivity : AppCompatActivity() {
 
         if (intent != null) {
             try {
-                if (intent.resolveActivity(packageManager) != null ||
-                    // 有些 Intent 比如 Settings.ACTION_WIFI_ADD_NETWORKS 可能 resolveActivity 返回 null 但仍能启动
-                    action is QuickAction.Wifi
-                ) {
-                    startActivity(intent)
-                } else {
-                    Toast.makeText(this, R.string.no_app_to_handle, Toast.LENGTH_SHORT).show()
-                }
-            } catch (_: Exception) {
+                startActivity(intent)
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(this, R.string.no_app_to_handle, Toast.LENGTH_SHORT).show()
+            } catch (_: SecurityException) {
                 Toast.makeText(this, R.string.cannot_perform_action, Toast.LENGTH_SHORT).show()
             }
         }

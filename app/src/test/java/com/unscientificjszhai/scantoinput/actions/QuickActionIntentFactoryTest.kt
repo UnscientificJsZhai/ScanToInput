@@ -24,6 +24,17 @@ class QuickActionIntentFactoryTest {
         assertNotNull(intent)
         assertEquals(Intent.ACTION_VIEW, intent?.action)
         assertEquals(Uri.parse("https://www.google.com"), intent?.data)
+        assertTrue(intent?.categories?.contains(Intent.CATEGORY_BROWSABLE) == true)
+    }
+
+    @Test
+    fun testAppDeepLinkIntent() {
+        val action = QuickAction.Url("exampleapp://open/item?id=1")
+        val intent = QuickActionIntentFactory.createIntent(action)
+        assertNotNull(intent)
+        assertEquals(Intent.ACTION_VIEW, intent?.action)
+        assertEquals(Uri.parse("exampleapp://open/item?id=1"), intent?.data)
+        assertTrue(intent?.categories?.contains(Intent.CATEGORY_BROWSABLE) == true)
     }
 
     @Test

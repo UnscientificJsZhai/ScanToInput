@@ -34,16 +34,30 @@ object QuickActionIntentFactory {
         }
     }
 
+    /**
+     * 创建打开网页或应用深链的 Intent。
+     *
+     * @param action URL 快速操作。
+     * @return 打开 URI 的 Intent。
+     */
     private fun createUrlIntent(action: QuickAction.Url): Intent {
         val rawText = action.rawText
-        val uri = if (rawText.startsWith("http", ignoreCase = true)) {
+        val uri = if (rawText.toUri().scheme != null) {
             rawText.toUri()
         } else {
             "http://$rawText".toUri()
         }
-        return Intent(Intent.ACTION_VIEW, uri)
+        return Intent(Intent.ACTION_VIEW, uri).apply {
+            addCategory(Intent.CATEGORY_BROWSABLE)
+        }
     }
 
+    /**
+     * 创建添加 Wi-Fi 网络的系统确认 Intent。
+     *
+     * @param action Wi-Fi 快速操作。
+     * @return 添加 Wi-Fi 网络的 Intent。
+     */
     private fun createWifiIntent(action: QuickAction.Wifi): Intent {
         // 使用 Settings.ACTION_WIFI_ADD_NETWORKS (API 30+)
         // 虽然名字叫 Suggestion，但在 ACTION_WIFI_ADD_NETWORKS 中用于添加保存的网络
@@ -78,6 +92,12 @@ object QuickActionIntentFactory {
         }
     }
 
+    /**
+     * 创建新增联系人的 Intent。
+     *
+     * @param action vCard 快速操作。
+     * @return 打开联系人新增界面的 Intent。
+     */
     private fun createVCardIntent(action: QuickAction.VCard): Intent {
         // 尝试解析核心字段：FN (Full Name) 和 TEL (Telephone)
         val text = action.rawText
@@ -95,6 +115,12 @@ object QuickActionIntentFactory {
         }
     }
 
+    /**
+     * 创建新增日历事件的 Intent。
+     *
+     * @param action 日历事件快速操作。
+     * @return 打开日历事件新增界面的 Intent。
+     */
     private fun createCalendarIntent(action: QuickAction.CalendarEvent): Intent {
         // 尝试解析核心字段：SUMMARY, DTSTART, DTEND
         val text = action.rawText
@@ -114,18 +140,36 @@ object QuickActionIntentFactory {
         }
     }
 
+    /**
+     * 创建发送邮件的 Intent。
+     *
+     * @param action 邮件快速操作。
+     * @return 打开邮件客户端的 Intent。
+     */
     private fun createEmailIntent(action: QuickAction.Email): Intent {
         return Intent(Intent.ACTION_SENDTO).apply {
             data = "mailto:${action.address}".toUri()
         }
     }
 
+    /**
+     * 创建拨号 Intent。
+     *
+     * @param action 电话快速操作。
+     * @return 打开拨号界面的 Intent。
+     */
     private fun createPhoneIntent(action: QuickAction.Phone): Intent {
         return Intent(Intent.ACTION_DIAL).apply {
             data = "tel:${action.phoneNumber}".toUri()
         }
     }
 
+    /**
+     * 创建发送短信的 Intent。
+     *
+     * @param action 短信快速操作。
+     * @return 打开短信客户端的 Intent。
+     */
     private fun createSmsIntent(action: QuickAction.Sms): Intent {
         return Intent(Intent.ACTION_SENDTO).apply {
             data = "smsto:${action.phoneNumber}".toUri()
@@ -133,8 +177,15 @@ object QuickActionIntentFactory {
         }
     }
 
+    /**
+     * 创建打开地图位置的 Intent。
+     *
+     * @param action 地理位置快速操作。
+     * @return 打开地图应用的 Intent。
+     */
     private fun createGeoIntent(action: QuickAction.Geo): Intent {
         return Intent(Intent.ACTION_VIEW).apply {
+            addCategory(Intent.CATEGORY_BROWSABLE)
             data = "geo:0,0?q=${Uri.encode(action.query)}".toUri()
         }
     }
