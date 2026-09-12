@@ -164,6 +164,30 @@ class ScanInputMethodServiceLifecycleTest {
         }
     }
 
+    /** 共享 R11 校验在真实扫描到 Service 入口拒绝控制符和孤立代理项，保留去重。 */
+    @Test
+    fun invalidUnicodeScansNeverCommitOrChangeDedup() {
+        Fixture().use { fixture ->
+            fixture.emit("seed")
+            val session = ReflectionHelpers.getField<ImeInputSession>(fixture.service, "inputSession")
+            for (text in listOf("before\u0000after", "\u007f", "\u0080", "\uD83D", "\uDC00", "\uD83Dx")) {
+                fixture.emit(text)
+                assertEquals(1, fixture.editor.commits)
+                assertEquals("seed", fixture.editor.content.toString())
+                assertEquals("seed", session.lastSuccessfulScanText)
+                assertTrue(session.canUndo())
+                assertEquals(View.VISIBLE, fixture.root.findViewById<View>(R.id.error_hint).visibility)
+            }
+            fixture.emit("seed")
+            assertEquals(1, fixture.editor.commits)
+            fixture.emit("合法👩🏽‍💻\n")
+            assertEquals(2, fixture.editor.commits)
+            assertEquals("seed合法👩🏽‍💻\n", fixture.editor.content.toString())
+            assertEquals("合法👩🏽‍💻\n", session.lastSuccessfulScanText)
+            assertEquals(View.GONE, fixture.root.findViewById<View>(R.id.error_hint).visibility)
+        }
+    }
+
     /** 结束输入后，相同文本在下一连接仍被去重，销毁后旧任务不能提交。 */
     @Test
     fun finishInputAndNewConnectionPreserveDedupButInvalidateUndo() {

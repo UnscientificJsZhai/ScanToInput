@@ -36,4 +36,11 @@
     <string name="cd_next_scan_button">Allow scanning the same QR code again</string>
     <string name="cd_space_button">Input space</string>
     <string name="cd_enter_button">Input enter or perform action</string>
+
+    <string name="invalid_wifi_config">Invalid Wi-Fi configuration</string>
+    <string name="unsupported_wifi_config">This Wi-Fi configuration is not supported</string>
+    <string name="invalid_calendar_event">Invalid calendar event or date</string>
+    <string name="unsupported_calendar_time">This calendar time format is not supported</string>
+    <string name="unsupported_calendar_time_zone">This calendar time zone is not supported</string>
+    <string name="invalid_action_link">Invalid action link</string>
 </resources>

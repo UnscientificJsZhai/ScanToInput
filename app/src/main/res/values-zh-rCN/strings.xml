@@ -36,4 +36,11 @@
     <string name="cd_next_scan_button">允许扫描下一个相同的二维码</string>
     <string name="cd_space_button">输入空格</string>
     <string name="cd_enter_button">输入回车或执行操作</string>
+
+    <string name="invalid_wifi_config">Wi-Fi 配置无效</string>
+    <string name="unsupported_wifi_config">不支持此 Wi-Fi 配置</string>
+    <string name="invalid_calendar_event">日历事件或日期无效</string>
+    <string name="unsupported_calendar_time">不支持此日历时间格式</string>
+    <string name="unsupported_calendar_time_zone">不支持此日历时区</string>
+    <string name="invalid_action_link">操作链接无效</string>
 </resources>

@@ -215,16 +215,19 @@ class MainActivity : AppCompatActivity() {
      */
     private fun performQuickAction() {
         val action = resultPolicy.currentState().quickAction ?: return
-        val intent = QuickActionIntentFactory.createIntent(action)
-
-        if (intent != null) {
-            try {
-                startActivity(intent)
-            } catch (_: ActivityNotFoundException) {
-                Toast.makeText(this, R.string.no_app_to_handle, Toast.LENGTH_SHORT).show()
-            } catch (_: SecurityException) {
-                Toast.makeText(this, R.string.cannot_perform_action, Toast.LENGTH_SHORT).show()
+        try {
+            when (val result = QuickActionIntentFactory.createIntent(action)) {
+                is QuickActionIntentFactory.CreationResult.Success -> startActivity(result.intent)
+                is QuickActionIntentFactory.CreationResult.Failure -> {
+                    Toast.makeText(this, result.messageResId, Toast.LENGTH_SHORT).show()
+                }
             }
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, R.string.no_app_to_handle, Toast.LENGTH_SHORT).show()
+        } catch (_: SecurityException) {
+            Toast.makeText(this, R.string.cannot_perform_action, Toast.LENGTH_SHORT).show()
+        } catch (_: IllegalArgumentException) {
+            Toast.makeText(this, R.string.cannot_perform_action, Toast.LENGTH_SHORT).show()
         }
     }
 
