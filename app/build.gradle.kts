@@ -194,6 +194,9 @@ tasks.register<JacocoCoverageVerification>("verifyCoreCoverage") {
     sourceDirectories.setFrom(coreCoverageReport.map { it.sourceDirectories })
     doFirst {
         val xmlFile = coreCoverageReport.get().reports.xml.outputLocation.get().asFile
+        check(xmlFile.isFile && xmlFile.length() > 0L) {
+            "核心覆盖率 XML 不存在或为空：${xmlFile.absolutePath}"
+        }
         val factory = DocumentBuilderFactory.newInstance().apply {
             setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
             setFeature("http://xml.org/sax/features/external-general-entities", false)
@@ -202,6 +205,16 @@ tasks.register<JacocoCoverageVerification>("verifyCoreCoverage") {
         val root = factory.newDocumentBuilder().parse(xmlFile).documentElement
         check(root.getElementsByTagName("class").length > 0) {
             "核心覆盖率报告没有业务类"
+        }
+        val classNodes = root.getElementsByTagName("class")
+        val actualClassNames = (0 until classNodes.length)
+            .map { (classNodes.item(it) as Element).getAttribute("name") }
+            .toSet()
+        val missingClassNames = coreClassNames
+            .map { "com/unscientificjszhai/scantoinput/$it" }
+            .filterNot { it in actualClassNames }
+        check(missingClassNames.isEmpty()) {
+            "核心覆盖率报告缺少预期根类：${missingClassNames.joinToString()}"
         }
         val counters = (0 until root.childNodes.length)
             .mapNotNull { root.childNodes.item(it) as? Element }
@@ -227,6 +240,10 @@ tasks.register<JacocoCoverageVerification>("verifyCoreCoverage") {
             }
         }
     }
+}
+
+tasks.named("check") {
+    dependsOn("verifyCoreCoverage")
 }
 
 dependencies {
