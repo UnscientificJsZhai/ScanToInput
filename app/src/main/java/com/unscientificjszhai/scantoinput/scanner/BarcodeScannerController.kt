@@ -1,225 +1,220 @@
 package com.unscientificjszhai.scantoinput.scanner
 
 import android.content.Context
-import androidx.annotation.OptIn
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import com.google.mlkit.vision.barcode.BarcodeScanner
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
+import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 扫码控制器，封装了 CameraX 和 ML Kit 的集成逻辑。
- *
- * @property context 应用程序上下文。
+ * 一次绑定创建的局部用例，清理时始终使用这一份身份。
+ * @property provider 绑定这些用例的提供者。
+ * @property preview 本次预览用例。
+ * @property analysis 本次分析用例。
  */
-class BarcodeScannerController(private val context: Context) {
+internal data class ScannerBinding(val provider: CameraProviderAdapter, val preview: Preview, val analysis: ImageAnalysis)
 
-    private var cameraProvider: ProcessCameraProvider? = null
-    private var analysisExecutor: ExecutorService? = Executors.newSingleThreadExecutor()
-    private var scanner: BarcodeScanner? = null
-
-    private var isStarted = false
-    private var startRequestId = 0
+/**
+ * 扫码控制器，将相机请求身份贯穿提供者获取、绑定、识别和最终交付。
+ * @property providerSource 异步提供者来源。
+ * @property mainExecutor 平台绑定与结果交付执行器。
+ * @property recognizer 本控制器拥有的识别器。
+ * @property analysisExecutor 本控制器拥有的分析执行器。
+ */
+class BarcodeScannerController internal constructor(
+    private val providerSource: CameraProviderSource,
+    private val mainExecutor: Executor,
+    private var recognizer: FrameRecognizer?,
+    private var analysisExecutor: ExecutorService?
+) {
+    private val stateLock = Any()
+    private val gate = ScanSessionGate()
+    private var binding: ScannerBinding? = null
     private var resultCallback: ((ScanResult) -> Unit)? = null
 
     /**
-     * 初始化扫码引擎。
+     * 创建使用真实 CameraX 与 ML Kit 的控制器。
+     * @param context 用于获取相机和主线程执行器的上下文。
      */
-    init {
-        val options = BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
-            .build()
-        scanner = BarcodeScanning.getClient(options)
-    }
+    constructor(context: Context) : this(
+        AndroidCameraProviderSource(context.applicationContext), ContextCompat.getMainExecutor(context),
+        MlKitFrameRecognizer(), Executors.newSingleThreadExecutor()
+    )
 
     /**
-     * 开始扫码。
-     *
-     * @param lifecycleOwner 生命周期所有者。
-     * @param previewView 用于显示相机预览的 View。
-     * @param onCameraUnavailable 相机无法绑定或启动时的回调。
-     * @param onResult 识别结果回调。
+     * 开始一个扫描请求；重复调用保持原请求及原回调。
+     * @param lifecycleOwner 绑定生命周期。
+     * @param previewView 显示预览的视图。
+     * @param onCameraUnavailable 当前请求失败的通知。
+     * @param onResult 当前请求识别到的结果。
      */
-    @Synchronized
-    fun start(
-        lifecycleOwner: LifecycleOwner,
-        previewView: PreviewView,
-        onCameraUnavailable: (() -> Unit)? = null,
-        onResult: (ScanResult) -> Unit
-    ) {
-        resultCallback = onResult
-        if (isStarted) return
-        isStarted = true
-        val requestId = ++startRequestId
-
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-        cameraProviderFuture.addListener({
-            try {
-                val provider = cameraProviderFuture.get()
-                val shouldBind = synchronized(this) {
-                    if (isStarted && requestId == startRequestId) {
-                        cameraProvider = provider
-                        true
-                    } else {
-                        false
-                    }
-                }
-                if (shouldBind) {
-                    bindCameraUseCases(
-                        provider,
-                        lifecycleOwner,
-                        previewView,
-                        requestId,
-                        onCameraUnavailable
-                    )
-                }
-            } catch (_: Exception) {
-                handleCameraUnavailable(null, requestId, onCameraUnavailable)
-            }
-        }, ContextCompat.getMainExecutor(context))
-    }
-
-    private fun bindCameraUseCases(
-        provider: ProcessCameraProvider,
-        lifecycleOwner: LifecycleOwner,
-        previewView: PreviewView,
-        requestId: Int,
-        onCameraUnavailable: (() -> Unit)?
-    ) {
-        val executor = analysisExecutor ?: run {
-            handleCameraUnavailable(provider, requestId, onCameraUnavailable)
-            return
+    fun start(lifecycleOwner: LifecycleOwner, previewView: PreviewView,
+              onCameraUnavailable: (() -> Unit)? = null, onResult: (ScanResult) -> Unit) {
+        val generation = synchronized(stateLock) {
+            val started = gate.start() ?: return
+            resultCallback = onResult
+            started
         }
-
-        val preview = Preview.Builder()
-            .build()
-            .also {
-                it.surfaceProvider = previewView.surfaceProvider
-            }
-
-        val imageAnalysis = ImageAnalysis.Builder()
-            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .build()
-            .also {
-                it.setAnalyzer(executor) { imageProxy ->
-                    processImageProxy(imageProxy)
-                }
-            }
-
-        val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
         try {
-            provider.unbindAll()
-            provider.bindToLifecycle(
-                lifecycleOwner,
-                cameraSelector,
-                preview,
-                imageAnalysis
-            )
+            providerSource.request(mainExecutor) { outcome ->
+                outcome.fold(
+                    onSuccess = { provider -> bind(provider, lifecycleOwner, previewView, generation, onCameraUnavailable) },
+                    onFailure = { fail(generation, onCameraUnavailable) }
+                )
+            }
         } catch (_: Exception) {
-            handleCameraUnavailable(provider, requestId, onCameraUnavailable)
+            fail(generation, onCameraUnavailable)
         }
     }
 
     /**
-     * 将相机启动失败统一清理为可再次启动的状态。
-     *
-     * @param provider 当前启动流程获得的相机提供者。
-     * @param requestId 当前启动请求编号，旧请求失败时不影响新请求。
-     * @param onCameraUnavailable 相机不可用回调。
+     * 在锁外执行平台绑定，返回后再次原子核对请求身份并发布。
+     * @param provider 本请求获得的提供者。
+     * @param owner 绑定生命周期。
+     * @param previewView 预览视图。
+     * @param generation 请求身份。
+     * @param unavailable 当前请求绑定失败通知。
      */
-    @Synchronized
-    private fun handleCameraUnavailable(
-        provider: ProcessCameraProvider?,
-        requestId: Int?,
-        onCameraUnavailable: (() -> Unit)?
-    ) {
-        if (requestId != null && requestId != startRequestId) {
-            return
-        }
-        isStarted = false
-        resultCallback = null
+    private fun bind(provider: CameraProviderAdapter, owner: LifecycleOwner, previewView: PreviewView,
+                     generation: Long, unavailable: (() -> Unit)?) {
+        val executor = synchronized(stateLock) {
+            if (!gate.isCurrent(generation)) return
+            analysisExecutor
+        } ?: return
+        var local: ScannerBinding? = null
         try {
-            provider?.unbindAll()
-            if (provider == null) {
-                cameraProvider?.unbindAll()
+            val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
+            val analysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
+            local = ScannerBinding(provider, preview, analysis)
+            analysis.setAnalyzer(executor) { frame -> processImageProxy(frame, generation) }
+            if (!synchronized(stateLock) { gate.isCurrent(generation) }) {
+                cleanup(local)
+                return
             }
-            cameraProvider = null
+            provider.bind(owner, preview, analysis)
+            val published = synchronized(stateLock) {
+                if (gate.publish(generation)) {
+                    binding = local
+                    true
+                } else false
+            }
+            if (!published) cleanup(local)
         } catch (_: Exception) {
-            // 相机已经处于失败状态时，清理失败可以忽略，后续重试会重新绑定。
+            fail(generation, unavailable)
+            cleanup(local)
         }
-        onCameraUnavailable?.invoke()
     }
 
-    @OptIn(ExperimentalGetImage::class)
-    private fun processImageProxy(
-        imageProxy: ImageProxy
-    ) {
-        val mediaImage = imageProxy.image
-        val scannerInstance = scanner
-        val callback = resultCallback
-        if (mediaImage != null && scannerInstance != null && callback != null) {
-            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-            scannerInstance.process(image)
-                .addOnSuccessListener { barcodes ->
-                    if (barcodes.isNotEmpty()) {
-                        val barcode = barcodes[0]
-                        val text = barcode.rawValue
-                        if (text != null) {
-                            callback(ScanResult.Text(text))
-                        } else {
-                            callback(ScanResult.NonText)
+    /**
+     * 只失效仍为当前身份的失败请求；过期失败不能修改新请求 UI。
+     * @param generation 失败的请求身份。
+     * @param unavailable 当前请求失败通知。
+     */
+    private fun fail(generation: Long, unavailable: (() -> Unit)?) {
+        synchronized(stateLock) {
+            if (!gate.isCurrent(generation)) return
+            gate.stop()
+            resultCallback = null
+            unavailable?.invoke()
+        }
+    }
+
+    /**
+     * 将分析器安装时捕获的身份带过整个异步识别，完成时再验证。
+     * @param imageProxy 控制器负责且只负责关闭一次的帧。
+     * @param generation 创建分析器时的请求身份。
+     */
+    private fun processImageProxy(imageProxy: ImageProxy, generation: Long) {
+        val closed = AtomicBoolean(false)
+        val closeFrame = { if (closed.compareAndSet(false, true)) imageProxy.close() }
+        try {
+            val task = synchronized(stateLock) {
+                if (gate.canDeliver(generation)) recognizer?.recognize(imageProxy) else null
+            }
+            if (task == null) {
+                closeFrame()
+                return
+            }
+            task.addOnCompleteListener(mainExecutor) { completed ->
+                try {
+                    if (completed.isSuccessful) {
+                        val result = completed.result
+                        if (result != null) synchronized(stateLock) {
+                            if (gate.canDeliver(generation)) resultCallback?.invoke(result)
                         }
                     }
+                } finally {
+                    closeFrame()
                 }
-                .addOnFailureListener {
-                    // 识别失败通常不需要特别处理，等待下一帧即可
-                }
-                .addOnCompleteListener {
-                    imageProxy.close()
-                }
-        } else {
-            imageProxy.close()
-        }
-    }
-
-    /**
-     * 停止扫码。
-     */
-    @Synchronized
-    fun stop() {
-        startRequestId++
-        isStarted = false
-        resultCallback = null
-        try {
-            cameraProvider?.unbindAll()
+            }
         } catch (_: Exception) {
-            // 停止路径需要保持幂等，CameraX 已失败时忽略解绑异常。
+            // 同步识别失败或执行器拒绝任务时也必须释放帧。
+            closeFrame()
         }
-        cameraProvider = null
+    }
+
+    /** 先原子失效请求并捕获旧绑定，再只清理捕获的用例身份。 */
+    fun stop() {
+        val oldBinding = synchronized(stateLock) {
+            gate.stop()
+            resultCallback = null
+            binding.also { binding = null }
+        }
+        scheduleCleanup(oldBinding)
+    }
+
+    /** 进入不可再次启动的终态，只释放本控制器拥有的资源。 */
+    fun release() {
+        val resources = synchronized(stateLock) {
+            gate.release()
+            resultCallback = null
+            Triple(binding, recognizer, analysisExecutor).also {
+                binding = null
+                recognizer = null
+                analysisExecutor = null
+            }
+        }
+        scheduleCleanup(resources.first)
+        try {
+            resources.second?.close()
+        } finally {
+            resources.third?.shutdown()
+        }
     }
 
     /**
-     * 释放资源。
+     * 清理一个明确的局部绑定，不读取当前成员绑定，也不影响其他所有者。
+     * @param oldBinding 要清理的旧绑定。
      */
-    @Synchronized
-    fun release() {
-        stop()
-        scanner?.close()
-        scanner = null
-        analysisExecutor?.shutdown()
-        analysisExecutor = null
+    private fun cleanup(oldBinding: ScannerBinding?) {
+        if (oldBinding == null) return
+        try {
+            oldBinding.analysis.clearAnalyzer()
+        } finally {
+            try {
+                oldBinding.provider.unbind(oldBinding.preview, oldBinding.analysis)
+            } catch (_: Exception) {
+                // CameraX 失败后解绑也可能失败；请求已失效，后续重试不复用它。
+            }
+        }
+    }
+
+    /**
+     * 停止可以由任意线程发起；平台用例清理始终投递到主执行器。
+     * @param oldBinding 已在状态锁内捕获、不会指向后续新请求的绑定。
+     */
+    private fun scheduleCleanup(oldBinding: ScannerBinding?) {
+        if (oldBinding != null) mainExecutor.execute {
+            try { cleanup(oldBinding) } catch (_: Exception) {
+                // 分析器清理失败也已通过 finally 尝试解绑这两个用例。
+            }
+        }
     }
 }
