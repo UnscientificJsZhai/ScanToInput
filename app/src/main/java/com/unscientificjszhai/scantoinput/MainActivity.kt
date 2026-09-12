@@ -10,8 +10,6 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.View
-import android.view.animation.AlphaAnimation
-import android.view.animation.Animation
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -23,13 +21,13 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
 import com.google.android.material.color.DynamicColors
 import com.unscientificjszhai.scantoinput.actions.QuickAction
 import com.unscientificjszhai.scantoinput.actions.QuickActionIntentFactory
 import com.unscientificjszhai.scantoinput.launcher.LauncherResultPolicy
 import com.unscientificjszhai.scantoinput.launcher.LauncherResultUpdate
+import com.unscientificjszhai.scantoinput.launcher.QuickActionButtonController
 import com.unscientificjszhai.scantoinput.scanner.BarcodeScannerController
 import com.unscientificjszhai.scantoinput.scanner.ScanResult
 import com.unscientificjszhai.scantoinput.text.TextProcessingResult
@@ -49,6 +47,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var errorHint: TextView
     private lateinit var copyButton: Button
     private lateinit var quickActionButton: Button
+    private lateinit var quickActionButtonController: QuickActionButtonController
 
     private val resultPolicy = LauncherResultPolicy()
     private val handler = Handler(Looper.getMainLooper())
@@ -76,6 +75,7 @@ class MainActivity : AppCompatActivity() {
         errorHint = findViewById(R.id.error_hint)
         copyButton = findViewById(R.id.copy_button)
         quickActionButton = findViewById(R.id.quick_action_button)
+        quickActionButtonController = QuickActionButtonController(quickActionButton, ::areAnimationsEnabled)
 
         val buttonRow: View = findViewById(R.id.button_row)
         ViewCompat.setOnApplyWindowInsetsListener(buttonRow) { v, insets ->
@@ -237,38 +237,13 @@ class MainActivity : AppCompatActivity() {
      * @param action 当前显示结果关联的快速操作。
      */
     private fun updateQuickActionButton(action: QuickAction?) {
-        val animatorDuration = if (areAnimationsEnabled()) 200L else 0L
-
-        if (action != null) {
-            quickActionButton.setText(action.labelResId)
-            if (quickActionButton.visibility != View.VISIBLE) {
-                quickActionButton.visibility = View.VISIBLE
-                if (animatorDuration > 0) {
-                    val anim = AlphaAnimation(0f, 1f)
-                    anim.duration = animatorDuration
-                    quickActionButton.startAnimation(anim)
-                }
-            }
-        } else {
-            if (quickActionButton.isVisible) {
-                if (animatorDuration > 0) {
-                    val anim = AlphaAnimation(1f, 0f)
-                    anim.duration = animatorDuration
-                    anim.setAnimationListener(object : Animation.AnimationListener {
-                        override fun onAnimationStart(animation: Animation?) {}
-                        override fun onAnimationRepeat(animation: Animation?) {}
-                        override fun onAnimationEnd(animation: Animation?) {
-                            quickActionButton.visibility = View.GONE
-                        }
-                    })
-                    quickActionButton.startAnimation(anim)
-                } else {
-                    quickActionButton.visibility = View.GONE
-                }
-            }
-        }
+        quickActionButtonController.render(action)
     }
 
+    /**
+     * 读取系统动画开关，保留页面既有设置语义。
+     * @return 动画时长倍率大于零时为 true。
+     */
     private fun areAnimationsEnabled(): Boolean {
         val durationScale = Settings.Global.getFloat(
             contentResolver,
@@ -304,6 +279,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        quickActionButtonController.dispose()
         super.onDestroy()
         scannerController.release()
         unlockRunnable?.let { handler.removeCallbacks(it) }
