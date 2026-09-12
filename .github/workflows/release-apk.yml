@@ -42,7 +42,9 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
       - name: Decode release keystore
-        run: echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${RUNNER_TEMP}/release.keystore"
+        run: |
+          umask 077
+          printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${RUNNER_TEMP}/release.keystore"
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
 
@@ -54,9 +56,17 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
+      - name: Verify signed APK
+        run: |
+          apk_path="app/build/outputs/apk/release/app-release.apk"
+          test -f "${apk_path}"
+          apksigner_path="$(find "${ANDROID_HOME}/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "${apksigner_path}"
+          "${apksigner_path}" verify --verbose "${apk_path}"
+
       - name: Rename APK
         run: |
-          apk_name="McpShortcuts-${GITHUB_REF_NAME//\//-}.apk"
+          apk_name="ScanToInput-${GITHUB_REF_NAME//\//-}.apk"
           mv app/build/outputs/apk/release/app-release.apk "${apk_name}"
           echo "APK_NAME=${apk_name}" >> "${GITHUB_ENV}"
 
@@ -64,3 +74,7 @@ jobs:
         run: gh release upload "${GITHUB_REF_NAME}" "${APK_NAME}" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: Remove temporary release keystore
+        if: always()
+        run: rm -f -- "${RUNNER_TEMP}/release.keystore"
