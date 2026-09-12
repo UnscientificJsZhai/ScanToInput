@@ -43,4 +43,5 @@
     <string name="unsupported_calendar_time">This calendar time format is not supported</string>
     <string name="unsupported_calendar_time_zone">This calendar time zone is not supported</string>
     <string name="invalid_action_link">Invalid action link</string>
+    <string name="token_accessibility_whitespace">Whitespace or line break</string>
 </resources>

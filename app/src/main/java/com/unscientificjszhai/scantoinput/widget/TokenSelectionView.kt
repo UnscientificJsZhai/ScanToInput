@@ -4,387 +4,673 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.Typeface
+import android.graphics.text.LineBreaker
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextDirectionHeuristics
+import android.text.TextPaint
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.HapticFeedbackConstants
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import android.widget.ScrollView
+import androidx.core.view.ViewCompat
 import com.unscientificjszhai.scantoinput.R
-import java.util.*
-import kotlin.math.max
-import kotlin.math.min
-import androidx.core.graphics.toColorInt
+import kotlin.math.ceil
+import kotlin.math.floor
 
 /**
- * 高性能 Token 选择控件。
- *
- * 该控件支持以流式布局展示一系列文本 Token，并允许用户通过点击或滑动来选择特定的 Token。
- * 控件针对性能进行了优化，通过在测量阶段缓存布局信息来减少绘制阶段的对象分配和重复计算。
- *
- * @property tokenTextSize Token 文字大小。
- * @property tokenTextColor Token 未选中时的文字颜色。
- * @property tokenSelectedTextColor Token 选中时的文字颜色。
- * @property tokenBackgroundColor Token 未选中时的背景颜色。
- * @property tokenSelectedBackgroundColor Token 选中时的背景颜色。
- * @property tokenPaddingHorizontal Token 内部水平内边距。
- * @property tokenPaddingVertical Token 内部垂直内边距。
- * @property tokenCornerRadius Token 背景的圆角半径。
- * @property tokenSpacingHorizontal Token 之间的水平间距。
- * @property tokenSpacingVertical Token 之间的垂直间距。
+ * 缓存多行文字、协调方向手势与可访问节点的选词控件。
+ * @param context 当前主题上下文。
+ * @param attrs XML 样式属性。
+ * @param defStyleAttr 默认样式属性。
  */
 class TokenSelectionView @JvmOverloads constructor(
-    context: Context,
-    attrs: AttributeSet? = null,
+    context: Context, attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
-
     private val engine = TokenSelectionEngine()
-
-    // 样式属性
     private var tokenTextSize = spToPx(14f)
     private var tokenTextColor = Color.BLACK
     private var tokenSelectedTextColor = Color.BLACK
-    private var tokenBackgroundColor = "#E0E0E0".toColorInt()
-    private var tokenSelectedBackgroundColor = "#80CBC4".toColorInt()
+    private var tokenBackgroundColor = 0xFFE0E0E0.toInt()
+    private var tokenSelectedBackgroundColor = 0xFF80CBC4.toInt()
     private var tokenPaddingHorizontal = dpToPx(8f)
     private var tokenPaddingVertical = dpToPx(4f)
     private var tokenCornerRadius = dpToPx(4f)
     private var tokenSpacingHorizontal = dpToPx(4f)
     private var tokenSpacingVertical = dpToPx(4f)
-    private val placeholderText = runCatching {
-        context.getString(R.string.token_selection_placeholder)
-    }.getOrDefault("扫描二维码以读取文本")
-
-    // 绘制资源
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
+    internal val placeholderText: String = context.getString(R.string.token_selection_placeholder)
+    private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val focusPaint =
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = dpToPx(2f)
+        }
+    private val backgroundRect = RectF()
+    private val drawClip = Rect()
+    private val viewport = Rect()
+    private val accessibilityViewport = Rect()
+    private val requestedRect = Rect()
+    private val drawRange = TokenIndexRange()
+    private val screenOrigin = IntArray(2)
+    private var textLayouts: Array<StaticLayout?> = emptyArray()
+    private var placeholderLayout: StaticLayout? = null
+    private var horizontalInset = 0f
+    private var lastWidth = -1
+    private var lastPaddingLeft = -1
+    private var lastPaddingTop = -1
+    private var lastPaddingRight = -1
+    private var lastPaddingBottom = -1
+    private var lastTextSize = -1f
+    private var lastTypeface: Typeface? = null
+    private var lastDirection = -1
+    private val gesture =
+        TokenGestureState(ViewConfiguration.get(context).scaledTouchSlop.toFloat())
+    private val autoScroll = TokenAutoScrollState(dpToPx(48f), dpToPx(720f))
+    private var scrollParent: ScrollView? = null
+    private var activePointer = MotionEvent.INVALID_POINTER_ID
+    private var downToken = -1
+    private var pointerRawX = 0f
+    private var pointerRawY = 0f
+    private var framePosted = false
+    private var previousFrameTime = 0L
+    private val frameCallback = object : Runnable {
+        override fun run() {
+            runScrollFrame()
+        }
     }
-    private val rectF = RectF()
-    private val drawingRect = android.graphics.Rect()
+    private val accessibility = TokenSelectionAccessibilityHelper(this)
+    private val ancestorScrollListener =
+        android.view.ViewTreeObserver.OnScrollChangedListener { accessibility.invalidateRoot() }
+    private val measurer = TokenTextMeasurer { index, text, maximumWidth ->
+        val display = text.replace("\r\n", "\n").replace('\r', '\n').replace('\u2028', '\n')
+            .replace('\u2029', '\n')
+        val contentWidth = maxOf(1, floor(maximumWidth - horizontalInset * 2f).toInt())
+        val naturalWidth = Layout.getDesiredWidth(display, textPaint)
+        val wholeLine = display.indexOf('\n') >= 0 || naturalWidth > contentWidth
+        val layoutWidth =
+            if (wholeLine) contentWidth else ceil(naturalWidth).toInt().coerceIn(1, contentWidth)
+        val layout = buildTextLayout(display, layoutWidth, Layout.Alignment.ALIGN_NORMAL)
+        textLayouts[index] = layout
+        TokenTextMetrics(
+            minOf(maximumWidth, layoutWidth + horizontalInset * 2f),
+            layout.height + tokenPaddingVertical * 2f,
+            layout.getLineBaseline(0) + tokenPaddingVertical,
+            wholeLine
+        )
+    }
 
-    // 布局缓存
-    private var lastMeasuredWidth = -1
-
-    // 交互状态
-    private var lastTouchedIndex = -1
-
+    /** 仅在选择实际变化后通知既有业务层。 */
     var onSelectionChangedListener: (() -> Unit)? = null
 
     init {
-        context.theme.obtainStyledAttributes(
-            attrs,
-            R.styleable.TokenSelectionView,
-            0, 0
-        ).apply {
-            try {
-                tokenTextSize =
-                    getDimension(R.styleable.TokenSelectionView_tokenTextSize, tokenTextSize)
-                tokenTextColor =
-                    getColor(R.styleable.TokenSelectionView_tokenTextColor, tokenTextColor)
-                tokenSelectedTextColor = getColor(
-                    R.styleable.TokenSelectionView_tokenSelectedTextColor,
-                    tokenSelectedTextColor
-                )
-                tokenBackgroundColor = getColor(
-                    R.styleable.TokenSelectionView_tokenBackgroundColor,
-                    tokenBackgroundColor
-                )
-                tokenSelectedBackgroundColor = getColor(
-                    R.styleable.TokenSelectionView_tokenSelectedBackgroundColor,
-                    tokenSelectedBackgroundColor
-                )
-                tokenPaddingHorizontal = getDimension(
-                    R.styleable.TokenSelectionView_tokenPaddingHorizontal,
-                    tokenPaddingHorizontal
-                )
-                tokenPaddingVertical = getDimension(
-                    R.styleable.TokenSelectionView_tokenPaddingVertical,
-                    tokenPaddingVertical
-                )
-                tokenCornerRadius = getDimension(
-                    R.styleable.TokenSelectionView_tokenCornerRadius,
-                    tokenCornerRadius
-                )
-                tokenSpacingHorizontal = getDimension(
-                    R.styleable.TokenSelectionView_tokenSpacingHorizontal,
-                    tokenSpacingHorizontal
-                )
-                tokenSpacingVertical = getDimension(
-                    R.styleable.TokenSelectionView_tokenSpacingVertical,
-                    tokenSpacingVertical
-                )
-            } finally {
-                recycle()
-            }
+        val values =
+            context.obtainStyledAttributes(attrs, R.styleable.TokenSelectionView, defStyleAttr, 0)
+        try {
+            tokenTextSize =
+                values.getDimension(R.styleable.TokenSelectionView_tokenTextSize, tokenTextSize)
+            tokenTextColor =
+                values.getColor(R.styleable.TokenSelectionView_tokenTextColor, tokenTextColor)
+            tokenSelectedTextColor = values.getColor(
+                R.styleable.TokenSelectionView_tokenSelectedTextColor,
+                tokenSelectedTextColor
+            )
+            tokenBackgroundColor = values.getColor(
+                R.styleable.TokenSelectionView_tokenBackgroundColor,
+                tokenBackgroundColor
+            )
+            tokenSelectedBackgroundColor = values.getColor(
+                R.styleable.TokenSelectionView_tokenSelectedBackgroundColor,
+                tokenSelectedBackgroundColor
+            )
+            tokenPaddingHorizontal = values.getDimension(
+                R.styleable.TokenSelectionView_tokenPaddingHorizontal,
+                tokenPaddingHorizontal
+            )
+            tokenPaddingVertical = values.getDimension(
+                R.styleable.TokenSelectionView_tokenPaddingVertical,
+                tokenPaddingVertical
+            )
+            tokenCornerRadius = values.getDimension(
+                R.styleable.TokenSelectionView_tokenCornerRadius,
+                tokenCornerRadius
+            )
+            tokenSpacingHorizontal = values.getDimension(
+                R.styleable.TokenSelectionView_tokenSpacingHorizontal,
+                tokenSpacingHorizontal
+            )
+            tokenSpacingVertical = values.getDimension(
+                R.styleable.TokenSelectionView_tokenSpacingVertical,
+                tokenSpacingVertical
+            )
+        } finally {
+            values.recycle()
         }
         textPaint.textSize = tokenTextSize
+        focusPaint.color = tokenSelectedTextColor
+        ViewCompat.setAccessibilityDelegate(this, accessibility)
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
+        isClickable = true
     }
 
     /**
-     * 设置显示的 token 列表。
-     * 调用此方法会清空当前的选择状态并触发重新布局。
-     *
-     * @param tokens 要显示的 token 列表。
+     * 替换逻辑 token，并废弃旧手势与旧虚拟节点身份。
+     * @param tokens 原始 token 列表。
      */
     fun setTokens(tokens: List<String>) {
+        finishInteraction()
+        val changed = engine.hasSelection()
+        accessibility.clearTokens()
         engine.setTokens(tokens)
-        lastMeasuredWidth = -1 // 强制重新计算布局
+        accessibility.replaceTokens()
+        lastWidth = -1
         requestLayout()
         invalidate()
-        onSelectionChangedListener?.invoke()
+        if (changed) onSelectionChangedListener?.invoke()
     }
 
-    /**
-     * 获取当前选中的文本。
-     * 选中的文本将按照其在原始列表中的顺序进行拼接。
-     *
-     * @return 拼接后的选中文本，如果没有选中则返回空字符串。
-     */
-    fun getSelectedText(): String {
-        return engine.getSelectedText()
-    }
+    /** @return 按原始顺序拼接的选择文本。 */
+    fun getSelectedText(): String = engine.getSelectedText()
 
-    /**
-     * 获取所有 Token 组成的全文。
-     *
-     * @return 拼接后的全文。
-     */
-    fun getFullText(): String = engine.tokens.joinToString("")
+    /** @return 未改变字符和逻辑 token 顺序的全文。 */
+    fun getFullText(): String = engine.getFullText()
 
-    /**
-     * 判断当前是否有任何 Token 被选中。
-     *
-     * @return 如果有至少一个选中则返回 true，否则返回 false。
-     */
+    /** @return 是否有选择。 */
     fun hasSelection(): Boolean = engine.hasSelection()
 
-    /**
-     * 清空当前所有的选择状态。
-     */
+    /** 清空选择，同时清理未完成手势及帧。 */
     fun clearSelection() {
-        if (engine.clearSelection()) {
-            invalidate()
-            onSelectionChangedListener?.invoke()
-        }
+        finishInteraction()
+        if (engine.clearSelection()) notifySelectionChanged()
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val width = MeasureSpec.getSize(widthMeasureSpec)
-        val widthMode = MeasureSpec.getMode(widthMeasureSpec)
-
-        if (widthMode == MeasureSpec.UNSPECIFIED) {
-            setMeasuredDimension(0, 0)
-            return
+        val targetWidth = if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED)
+            maxOf(
+                suggestedMinimumWidth,
+                ceil(
+                    Layout.getDesiredWidth(
+                        placeholderText,
+                        textPaint
+                    )
+                ).toInt() + paddingLeft + paddingRight
+            )
+        else MeasureSpec.getSize(widthMeasureSpec)
+        if (targetWidth != lastWidth || paddingLeft != lastPaddingLeft || paddingTop != lastPaddingTop ||
+            paddingRight != lastPaddingRight || paddingBottom != lastPaddingBottom || textPaint.textSize != lastTextSize ||
+            textPaint.typeface != lastTypeface || layoutDirection != lastDirection
+        ) {
+            finishInteraction()
+            textLayouts = arrayOfNulls(engine.tokens.size)
+            val availableWidth = targetWidth - paddingLeft - paddingRight
+            horizontalInset = minOf(tokenPaddingHorizontal, maxOf(0f, (availableWidth - 1f) / 2f))
+            engine.calculateLayout(
+                availableWidth.toFloat(), paddingLeft.toFloat(), paddingTop.toFloat(),
+                tokenSpacingHorizontal, tokenSpacingVertical, measurer
+            )
+            placeholderLayout = if (availableWidth > 0) buildTextLayout(
+                placeholderText,
+                availableWidth,
+                Layout.Alignment.ALIGN_CENTER
+            ) else null
+            lastWidth = targetWidth
+            lastPaddingLeft = paddingLeft
+            lastPaddingTop = paddingTop
+            lastPaddingRight = paddingRight
+            lastPaddingBottom = paddingBottom
+            lastTextSize = textPaint.textSize
+            lastTypeface = textPaint.typeface
+            lastDirection = layoutDirection
+            accessibility.invalidateRoot()
         }
-
-        if (engine.tokens.isEmpty()) {
-            lastMeasuredWidth = width
-            setMeasuredDimension(width, resolveSize(placeholderHeight(), heightMeasureSpec))
-            return
-        }
-
-        if (width != lastMeasuredWidth) {
-            calculateLayout(width)
-            lastMeasuredWidth = width
-        }
-
-        val totalHeight = (engine.totalHeight + paddingTop + paddingBottom).toInt()
-        setMeasuredDimension(width, resolveSize(totalHeight, heightMeasureSpec))
+        val desiredHeight = if (engine.tokens.isEmpty())
+            paddingTop + paddingBottom + (placeholderLayout?.height
+                ?: 0) + tokenPaddingVertical * 2f
+        else engine.totalHeight + paddingBottom
+        setMeasuredDimension(
+            resolveSize(targetWidth, widthMeasureSpec),
+            resolveSize(ceil(desiredHeight).toInt(), heightMeasureSpec)
+        )
     }
 
     /**
-     * 计算所有 Token 的布局位置。
-     * 此方法在测量阶段调用，委托给 Engine 模块缓存结果。
-     *
-     * @param width 控件的总宽度。
+     * 在冷路径构造平台文字布局。
+     * @param text 用于显示的文本。
+     * @param width 合法的正整数文字宽度。
+     * @param alignment 行对齐方式。
+     * @return 保留字体边界、字素和双向文字规则的布局。
      */
-    private fun calculateLayout(width: Int) {
-        val availableWidth = width - paddingLeft - paddingRight
-        val fontMetrics = textPaint.fontMetrics
-        engine.calculateLayout(
-            availableWidth = availableWidth.toFloat(),
-            paddingLeft = paddingLeft.toFloat(),
-            paddingTop = paddingTop.toFloat(),
-            tokenSpacingHorizontal = tokenSpacingHorizontal,
-            tokenSpacingVertical = tokenSpacingVertical,
-            tokenPaddingHorizontal = tokenPaddingHorizontal,
-            tokenPaddingVertical = tokenPaddingVertical,
-            fontMetricsTop = fontMetrics.top,
-            fontMetricsBottom = fontMetrics.bottom,
-            measureTextWidth = { textPaint.measureText(it) }
-        )
-    }
+    private fun buildTextLayout(
+        text: String,
+        width: Int,
+        alignment: Layout.Alignment
+    ): StaticLayout =
+        StaticLayout.Builder.obtain(text, 0, text.length, textPaint, width)
+            .setAlignment(alignment).setIncludePad(true)
+            .setTextDirection(if (layoutDirection == LAYOUT_DIRECTION_RTL) TextDirectionHeuristics.FIRSTSTRONG_RTL else TextDirectionHeuristics.FIRSTSTRONG_LTR)
+            .setBreakStrategy(LineBreaker.BREAK_STRATEGY_SIMPLE)
+            .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE).build()
 
     override fun onDraw(canvas: Canvas) {
+        if (!canvas.getClipBounds(drawClip)) return
         if (engine.tokens.isEmpty()) {
-            drawPlaceholder(canvas)
+            val layout = placeholderLayout ?: return
+            textPaint.color = tokenTextColor
+            val saved = canvas.save()
+            canvas.translate(
+                paddingLeft.toFloat(),
+                paddingTop + maxOf(0f, (height - paddingTop - paddingBottom - layout.height) / 2f)
+            )
+            layout.draw(canvas)
+            canvas.restoreToCount(saved)
             return
         }
-
-        if (engine.layoutInfos.size != engine.tokens.size) return
-
-        // 视口可见性分析优化绘制
-        getDrawingRect(drawingRect)
-        val visibleRange = engine.getVisibleTokenIndices(
-            drawingRect.top.toFloat(),
-            drawingRect.bottom.toFloat()
+        engine.fillVisibleTokenRange(
+            maxOf(drawClip.top, paddingTop).toFloat(),
+            minOf(drawClip.bottom, height - paddingBottom).toFloat(),
+            drawRange
         )
-
-        if (visibleRange.isEmpty()) return
-
-        for (i in visibleRange) {
+        var i = drawRange.firstIndex
+        if (i < 0) return
+        while (i <= drawRange.lastIndex) {
             val info = engine.layoutInfos[i]
-            val isSelected = engine.isSelected(i)
-
-            // 绘制背景
-            backgroundPaint.color =
-                if (isSelected) tokenSelectedBackgroundColor else tokenBackgroundColor
-            rectF.set(info.x, info.y, info.x + info.width, info.y + info.height)
-            canvas.drawRoundRect(rectF, tokenCornerRadius, tokenCornerRadius, backgroundPaint)
-
-            // 绘制文字
-            textPaint.color = if (isSelected) tokenSelectedTextColor else tokenTextColor
-            canvas.drawText(
-                engine.tokens[i],
-                info.x + tokenPaddingHorizontal,
-                info.y + info.baseline,
-                textPaint
-            )
+            val layout = cachedTextLayout(i)
+            if (layout != null && info.y + info.height > drawClip.top && info.y < drawClip.bottom &&
+                info.x + info.width > drawClip.left && info.x < drawClip.right
+            ) {
+                val selected = engine.isSelected(i)
+                backgroundPaint.color =
+                    if (selected) tokenSelectedBackgroundColor else tokenBackgroundColor
+                backgroundRect.set(info.x, info.y, info.x + info.width, info.y + info.height)
+                canvas.drawRoundRect(
+                    backgroundRect,
+                    tokenCornerRadius,
+                    tokenCornerRadius,
+                    backgroundPaint
+                )
+                if (accessibility.isTokenFocused(i)) canvas.drawRoundRect(
+                    backgroundRect,
+                    tokenCornerRadius,
+                    tokenCornerRadius,
+                    focusPaint
+                )
+                textPaint.color = if (selected) tokenSelectedTextColor else tokenTextColor
+                val saved = canvas.save()
+                canvas.translate(info.x + horizontalInset, info.y + tokenPaddingVertical)
+                canvas.clipRect(0, 0, layout.width, layout.height)
+                layout.draw(canvas)
+                canvas.restoreToCount(saved)
+            }
+            i++
         }
-    }
-
-    /**
-     * 计算占位文案展示所需的最小高度。
-     *
-     * @return 包含上下内边距的占位区域高度。
-     */
-    private fun placeholderHeight(): Int {
-        val fontMetrics = textPaint.fontMetrics
-        return (fontMetrics.bottom - fontMetrics.top + paddingTop + paddingBottom + tokenPaddingVertical * 2).toInt()
-    }
-
-    /**
-     * 绘制空列表状态下的占位文案。
-     *
-     * @param canvas 用于绘制占位文案的画布。
-     */
-    private fun drawPlaceholder(canvas: Canvas) {
-        val fontMetrics = textPaint.fontMetrics
-        val contentWidth = width - paddingLeft - paddingRight
-        val contentHeight = height - paddingTop - paddingBottom
-
-        // 计算水平居中位置
-        val textWidth = textPaint.measureText(placeholderText)
-        val x = paddingLeft + (contentWidth - textWidth) / 2f
-
-        // 计算垂直居中位置（基准线）
-        val baseline =
-            paddingTop + (contentHeight - fontMetrics.bottom + fontMetrics.top) / 2f - fontMetrics.top
-
-        textPaint.color = tokenTextColor
-        canvas.drawText(placeholderText, x, baseline, textPaint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val x = event.x
-        val y = event.y
-
-        when (event.action) {
+        if (!isEnabled) {
+            finishInteraction()
+            return false
+        }
+        when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                val index = engine.findTokenAt(x, y)
-                if (index != -1) {
-                    startDragSelection(index)
-                    return true
-                }
+                finishInteraction()
+                downToken = engine.findTokenAt(event.x, event.y)
+                if (downToken < 0) return false
+                activePointer = event.getPointerId(0)
+                rememberPointer(event, 0)
+                gesture.begin(event.x, event.y)
+                return true
             }
 
             MotionEvent.ACTION_MOVE -> {
-                if (engine.isDragging) {
-                    val index = engine.findTokenAt(x, y)
-                    if (index != -1 && index != lastTouchedIndex) {
-                        lastTouchedIndex = index
-                        applyDragRange(index)
-                    }
-                    return true
+                val pointer = event.findPointerIndex(activePointer)
+                if (pointer < 0) {
+                    finishInteraction()
+                    return false
                 }
+                rememberPointer(event, pointer)
+                if (gesture.move(
+                        event.getX(pointer),
+                        event.getY(pointer)
+                    ) == TokenGestureState.HORIZONTAL
+                ) {
+                    var changed = false
+                    if (!engine.isDragging) {
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        changed = engine.startDragSelection(downToken)
+                    }
+                    val index = engine.findTokenAt(event.getX(pointer), event.getY(pointer))
+                    if (engine.applyDragRange(index)) changed = true
+                    refreshAutoScroll()
+                    if (changed) notifySelectionChanged()
+                }
+                return true
             }
 
             MotionEvent.ACTION_UP -> {
-                if (engine.isDragging) {
-                    endDragSelection()
-                    performClick()
-                    return true
+                val pointer = event.findPointerIndex(activePointer)
+                if (pointer < 0) {
+                    finishInteraction()
+                    return false
                 }
+                val index = engine.findTokenAt(event.getX(pointer), event.getY(pointer))
+                if (gesture.move(
+                        event.getX(pointer),
+                        event.getY(pointer)
+                    ) == TokenGestureState.PENDING && index == downToken
+                ) return performTokenClick(index)
+                val changed = engine.applyDragRange(index)
+                finishInteraction()
+                if (changed) notifySelectionChanged()
+                return true
+            }
+
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                finishInteraction()
+                return true
+            }
+
+            MotionEvent.ACTION_POINTER_UP -> {
+                if (event.getPointerId(event.actionIndex) == activePointer) finishInteraction()
+                return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
-                if (engine.isDragging) {
-                    endDragSelection()
-                    return true
-                }
+                finishInteraction()
+                return true
             }
         }
         return super.onTouchEvent(event)
     }
+
+    /**
+     * 保存活动指针屏幕坐标，滚动后不沿用过期内容坐标。
+     * @param event 当前触摸事件。
+     * @param index 活动指针在事件中的位置。
+     */
+    private fun rememberPointer(event: MotionEvent, index: Int) {
+        pointerRawX = event.getRawX(index)
+        pointerRawY = event.getRawY(index)
+    }
+
+    /** 检查边缘并保证仅挂起一个已有帧回调。 */
+    private fun refreshAutoScroll() {
+        val scroll = scrollParent
+        if (scroll == null || !engine.isDragging || !getLocalVisibleRect(viewport)) {
+            stopAutoScroll()
+            return
+        }
+        getLocationOnScreen(screenOrigin)
+        autoScroll.calculateDelta(
+            pointerRawY - screenOrigin[1], viewport.top.toFloat(), viewport.bottom.toFloat(), 0L,
+            scroll.canScrollVertically(-1), scroll.canScrollVertically(1)
+        )
+        if (!autoScroll.isActive) {
+            stopAutoScroll()
+            return
+        }
+        if (!framePosted) {
+            previousFrameTime = android.os.SystemClock.uptimeMillis()
+            postScrollFrame()
+        }
+    }
+
+    /** 执行一帧滚动及坐标重算，通知重入后不再启动旧任务。 */
+    private fun runScrollFrame() {
+        framePosted = false
+        val scroll = scrollParent
+        if (scroll == null || !engine.isDragging || activePointer == MotionEvent.INVALID_POINTER_ID || !getLocalVisibleRect(
+                viewport
+            )
+        ) {
+            stopAutoScroll()
+            return
+        }
+        getLocationOnScreen(screenOrigin)
+        val now = android.os.SystemClock.uptimeMillis()
+        val delta = autoScroll.calculateDelta(
+            pointerRawY - screenOrigin[1], viewport.top.toFloat(), viewport.bottom.toFloat(),
+            now - previousFrameTime, scroll.canScrollVertically(-1), scroll.canScrollVertically(1)
+        )
+        previousFrameTime = now
+        if (!autoScroll.isActive) return
+        if (delta != 0) {
+            val before = scroll.scrollY
+            scroll.scrollBy(0, delta)
+            if (scroll.scrollY == before) {
+                stopAutoScroll()
+                return
+            }
+        }
+        getLocationOnScreen(screenOrigin)
+        if (!getLocalVisibleRect(viewport)) {
+            stopAutoScroll()
+            return
+        }
+        val y = (pointerRawY - screenOrigin[1]).coerceIn(
+            viewport.top.toFloat(),
+            maxOf(viewport.top.toFloat(), viewport.bottom - 0.01f)
+        )
+        val index =
+            engine.findClosestTokenForDrag(pointerRawX - screenOrigin[0], y, autoScroll.direction)
+        val changed = engine.applyDragRange(index)
+        postScrollFrame()
+        accessibility.invalidateRoot()
+        if (changed) notifySelectionChanged()
+    }
+
+    /** 挂起唯一下一帧；已挂起时不重复添加。 */
+    private fun postScrollFrame() {
+        if (!framePosted) {
+            framePosted = true
+            postOnAnimation(frameCallback)
+        }
+    }
+
+    /** 清除帧与小数状态。 */
+    private fun stopAutoScroll() {
+        removeCallbacks(frameCallback)
+        framePosted = false
+        autoScroll.reset()
+    }
+
+    /** 统一结束所有手势状态，但保留已应用选择。 */
+    private fun finishInteraction() {
+        stopAutoScroll()
+        engine.endDragSelection()
+        gesture.reset()
+        activePointer = MotionEvent.INVALID_POINTER_ID
+        downToken = -1
+        parent?.requestDisallowInterceptTouchEvent(false)
+    }
+
+    /** 通知真实变化；该调用必须位于当前事件或帧的末尾。 */
+    private fun notifySelectionChanged() {
+        performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        invalidate()
+        accessibility.invalidateRoot()
+        onSelectionChangedListener?.invoke()
+    }
+
+    /**
+     * 共用的触摸/无障碍点击入口。
+     * @param index 目标索引。
+     * @return 有效 token 被切换时为 true。
+     */
+    internal fun performTokenClick(index: Int): Boolean {
+        finishInteraction()
+        if (!engine.setSelectionState(index, !engine.isSelected(index))) return false
+        performClick()
+        notifySelectionChanged()
+        return true
+    }
+
+    /**
+     * 读取绘制阶段实际使用的布局缓存。
+     * @param index 当前 token 索引。
+     * @return 已建立的文字布局，尚未测量时为 null。
+     */
+    internal fun cachedTextLayout(index: Int): StaticLayout? = textLayouts.getOrNull(index)
+
+    /** @return 当前逻辑 token 数量。 */
+    internal fun tokenCount(): Int = engine.tokens.size
+
+    /**
+     * 读取节点原文。
+     * @param index 已验证的索引。
+     * @return 完整原文。
+     */
+    internal fun tokenText(index: Int): String = engine.tokens[index]
+
+    /**
+     * 读取节点状态。
+     * @param index token 索引。
+     * @return 是否选中。
+     */
+    internal fun tokenSelected(index: Int): Boolean = engine.isSelected(index)
+
+    /**
+     * 提供 helper 严格命中。
+     * @param x 内容横坐标。
+     * @param y 内容纵坐标。
+     * @return token 索引或 -1。
+     */
+    internal fun tokenAt(x: Float, y: Float): Int = engine.findTokenAt(x, y)
+
+    /**
+     * 将缓存边界写入 helper 的复用矩形。
+     * @param index token 索引。
+     * @param result 调用方矩形。
+     */
+    internal fun tokenBounds(index: Int, result: Rect) {
+        if (index < 0 || index >= engine.layoutInfos.size) {
+            result.setEmpty()
+            return
+        }
+        val info = engine.layoutInfos[index]
+        result.set(
+            floor(info.x).toInt(),
+            floor(info.y).toInt(),
+            ceil(info.x + info.width).toInt(),
+            ceil(info.y + info.height).toInt()
+        )
+    }
+
+    /**
+     * 提供实际可见 token 范围。
+     * @param result helper 独有的输出载体。
+     */
+    internal fun visibleTokens(result: TokenIndexRange) {
+        if (getLocalVisibleRect(accessibilityViewport)) engine.fillVisibleTokenRange(
+            accessibilityViewport.top.toFloat(),
+            accessibilityViewport.bottom.toFloat(),
+            result
+        )
+        else {
+            result.firstIndex = -1
+            result.lastIndex = -1
+        }
+    }
+
+    /**
+     * 显示目标；超高 token 先显示顶部，后续由正常滚动阅读。
+     * @param index token 索引。
+     * @return 有有效布局目标时为 true。
+     */
+    internal fun showToken(index: Int): Boolean {
+        tokenBounds(index, requestedRect)
+        if (requestedRect.isEmpty) return false
+        val scroll = scrollParent
+        if (scroll != null) requestedRect.bottom = minOf(
+            requestedRect.bottom,
+            requestedRect.top + scroll.height - scroll.paddingTop - scroll.paddingBottom
+        )
+        requestRectangleOnScreen(requestedRect, true)
+        accessibility.invalidateRoot()
+        return true
+    }
+
+    /**
+     * 执行无障碍的一页滚动。
+     * @param direction -1 向前，1 向后。
+     * @return 是否实际移动。
+     */
+    internal fun scrollPage(direction: Int): Boolean {
+        finishInteraction()
+        val scroll = scrollParent ?: return false
+        val before = scroll.scrollY
+        scroll.scrollBy(
+            0,
+            direction * maxOf(1, scroll.height - scroll.paddingTop - scroll.paddingBottom)
+        )
+        accessibility.invalidateRoot()
+        return scroll.scrollY != before
+    }
+
+    /**
+     * 查询父容器可滚动性。
+     * @param direction 目标方向。
+     * @return 当前是否可滚动。
+     */
+    internal fun canScrollResult(direction: Int): Boolean =
+        scrollParent?.canScrollVertically(direction) == true
 
     override fun performClick(): Boolean {
         super.performClick()
         return true
     }
 
-    /**
-     * 设置父容器是否允许拦截当前触摸手势。
-     *
-     * @param disallowIntercept true 表示禁止父容器拦截，false 表示恢复默认拦截行为。
-     */
-    private fun setParentDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
-        parent?.requestDisallowInterceptTouchEvent(disallowIntercept)
+    override fun dispatchHoverEvent(event: MotionEvent): Boolean =
+        accessibility.dispatchHoverEvent(event) || super.dispatchHoverEvent(event)
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        accessibility.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
+
+    override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: Rect?) {
+        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
+        accessibility.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (!hasWindowFocus) finishInteraction()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        var ancestor = parent
+        while (ancestor != null && ancestor !is ScrollView) ancestor = ancestor.parent
+        scrollParent = ancestor as? ScrollView
+        viewTreeObserver.addOnScrollChangedListener(ancestorScrollListener)
+    }
+
+    override fun onDetachedFromWindow() {
+        finishInteraction()
+        scrollParent = null
+        viewTreeObserver.removeOnScrollChangedListener(ancestorScrollListener)
+        super.onDetachedFromWindow()
     }
 
     /**
-     * 开始一次连续选择手势。
-     *
-     * @param index 手势起点命中的 Token 索引。
+     * 转换密度像素。
+     * @param dp 密度无关像素。
+     * @return 实际像素。
      */
-    private fun startDragSelection(index: Int) {
-        setParentDisallowInterceptTouchEvent(true)
-        engine.startDragSelection(index)
-        lastTouchedIndex = index
-        performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-        invalidate()
-        onSelectionChangedListener?.invoke()
-    }
+    private fun dpToPx(dp: Float): Float =
+        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics)
 
     /**
-     * 结束当前连续选择手势并清理临时状态。
+     * 转换文字尺寸。
+     * @param sp 缩放无关像素。
+     * @return 实际像素。
      */
-    private fun endDragSelection() {
-        engine.endDragSelection()
-        lastTouchedIndex = -1
-        setParentDisallowInterceptTouchEvent(false)
-    }
-
-    /**
-     * 将选择状态更新为起点到当前 Token 的连续区间。
-     *
-     * @param currentIndex 当前命中的 Token 索引。
-     */
-    private fun applyDragRange(currentIndex: Int) {
-        if (engine.applyDragRange(currentIndex)) {
-            performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-            invalidate()
-            onSelectionChangedListener?.invoke()
-        }
-    }
-
-    private fun dpToPx(dp: Float): Float {
-        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics)
-    }
-
-    @Suppress("SameParameterValue")
-    private fun spToPx(sp: Float): Float {
-        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, resources.displayMetrics)
-    }
+    private fun spToPx(sp: Float): Float =
+        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, resources.displayMetrics)
 }
