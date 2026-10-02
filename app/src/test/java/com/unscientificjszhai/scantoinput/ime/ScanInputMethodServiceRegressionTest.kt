@@ -2,12 +2,16 @@ package com.unscientificjszhai.scantoinput.ime
 
 import android.app.Application
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import android.widget.FrameLayout
 import com.unscientificjszhai.scantoinput.R
 import com.unscientificjszhai.scantoinput.scanner.ScanResult
 import java.lang.reflect.Proxy
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -19,6 +23,17 @@ import org.robolectric.util.ReflectionHelpers
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class ScanInputMethodServiceRegressionTest {
+    /** 输入法根布局保持未附着状态，并携带系统 FrameLayout 所需的宽高参数。 */
+    @Test
+    @Config(sdk = [34, 37])
+    fun inputViewKeepsDetachedFrameLayoutParameters() {
+        val root = service().onCreateInputView()
+        assertNull(root.parent)
+        assertTrue(root.layoutParams is FrameLayout.LayoutParams)
+        assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, root.layoutParams.width)
+        assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, root.layoutParams.height)
+    }
+
     /** 提交失败后，同一个扫码必须再次尝试提交。 */
     @Test
     fun failedCommitRemainsRetryable() {

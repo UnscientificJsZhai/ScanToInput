@@ -1,11 +1,11 @@
 package com.unscientificjszhai.scantoinput.actions
 
 import android.content.Intent
-import android.net.Uri
 import android.net.wifi.WifiNetworkSuggestion
 import android.provider.CalendarContract
 import android.provider.ContactsContract
 import android.provider.Settings
+import androidx.core.net.toUri
 import com.unscientificjszhai.scantoinput.R
 import com.unscientificjszhai.scantoinput.text.CalendarEventParser
 import com.unscientificjszhai.scantoinput.text.TextProcessingRules
@@ -43,7 +43,7 @@ object QuickActionIntentFactory {
             is QuickAction.CalendarEvent -> createCalendarIntent(action, floatingZone)
             is QuickAction.Email -> createUriIntent(action.rawText, Intent.ACTION_SENDTO)
             is QuickAction.Phone -> createUriIntent(action.rawText, Intent.ACTION_DIAL)
-            is QuickAction.Sms -> CreationResult.Success(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${action.phoneNumber}")).apply {
+            is QuickAction.Sms -> CreationResult.Success(Intent(Intent.ACTION_SENDTO, "smsto:${action.phoneNumber}".toUri()).apply {
                 action.body?.let { putExtra("sms_body", it) }
             })
             is QuickAction.Geo -> createUriIntent(action.rawText, Intent.ACTION_VIEW, browsable = true)
@@ -65,7 +65,7 @@ object QuickActionIntentFactory {
      */
     private fun createUriIntent(text: String, intentAction: String, browsable: Boolean = false): CreationResult {
         val uri = TextProcessingRules.normalizeActionUri(text) ?: return CreationResult.Failure(R.string.invalid_action_link)
-        return CreationResult.Success(Intent(intentAction, Uri.parse(uri)).apply {
+        return CreationResult.Success(Intent(intentAction, uri.toUri()).apply {
             if (browsable) addCategory(Intent.CATEGORY_BROWSABLE)
         })
     }

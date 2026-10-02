@@ -51,14 +51,23 @@ class TokenSelectionViewTest {
     fun downOnTokenWaitsForGestureDirection() {
         val f = fixture(listOf("Hello", "World"))
         var notifications = 0
+        var clicks = 0
         f.view.onSelectionChangedListener = { notifications++ }
+        f.view.setOnClickListener { clicks++ }
         val point = pointInScroll(f, 5f, 5f)
         dispatch(f, MotionEvent.ACTION_DOWN, point[0], point[1])
         assertFalse("DOWN 不应选择", f.view.hasSelection())
         assertEquals(0, notifications)
+        assertEquals(0, clicks)
         dispatch(f, MotionEvent.ACTION_UP, point[0], point[1])
         assertEquals("Hello", f.view.getSelectedText())
         assertEquals(1, notifications)
+        assertEquals(1, clicks)
+        dispatch(f, MotionEvent.ACTION_DOWN, point[0], point[1])
+        dispatch(f, MotionEvent.ACTION_UP, point[0], point[1])
+        assertFalse(f.view.hasSelection())
+        assertEquals(2, notifications)
+        assertEquals(2, clicks)
     }
 
     /** 纵向手势经过真实父容器分发后滚动，且不选词。 */
@@ -67,7 +76,9 @@ class TokenSelectionViewTest {
         val f = fixture(List(1000) { "word" })
         assertTrue(f.scroll.canScrollVertically(1))
         var notifications = 0
+        var clicks = 0
         f.view.onSelectionChangedListener = { notifications++ }
+        f.view.setOnClickListener { clicks++ }
         val point = pointInScroll(f, 5f, 5f)
         dispatch(f, MotionEvent.ACTION_DOWN, point[0], point[1])
         dispatch(f, MotionEvent.ACTION_MOVE, point[0], point[1] - 40f)
@@ -76,6 +87,25 @@ class TokenSelectionViewTest {
         assertTrue("纵滑应使父容器滚动", f.scroll.scrollY > 0)
         assertFalse(f.view.hasSelection())
         assertEquals(0, notifications)
+        assertEquals(0, clicks)
+    }
+
+    /** 取消待判定手势和完整水平拖选均不触发点击回调。 */
+    @Test
+    fun cancellationAndHorizontalDragDoNotDispatchClick() {
+        val f = TokenSelectionTestFixture(listOf("one", "two", "three"))
+        var clicks = 0
+        f.view.setOnClickListener { clicks++ }
+        f.touch(MotionEvent.ACTION_DOWN, 5f, 5f)
+        f.cancel()
+        assertFalse(f.view.hasSelection())
+        assertEquals(0, clicks)
+        f.beginDrag()
+        val last = f.bounds(2)
+        f.touch(MotionEvent.ACTION_MOVE, last.exactCenterX(), last.exactCenterY())
+        f.touch(MotionEvent.ACTION_UP, last.exactCenterX(), last.exactCenterY())
+        assertEquals("onetwothree", f.view.getSelectedText())
+        assertEquals(0, clicks)
     }
 
     /** 超长 token 受宽度约束换行，选中时保持完整原文。 */
@@ -129,11 +159,18 @@ class TokenSelectionViewTest {
         assertEquals("Hello", node.text.toString())
         assertFalse(node.isChecked)
         var notifications = 0
+        var clicks = 0
         f.view.onSelectionChangedListener = { notifications++ }
+        f.view.setOnClickListener { clicks++ }
         assertTrue(provider.performAction(1, AccessibilityNodeInfo.ACTION_CLICK, null))
         assertEquals("Hello", f.view.getSelectedText())
         assertEquals(1, notifications)
+        assertEquals(1, clicks)
         assertTrue(provider.createAccessibilityNodeInfo(1)!!.isChecked)
+        assertTrue(provider.performAction(1, AccessibilityNodeInfo.ACTION_CLICK, null))
+        assertFalse(f.view.hasSelection())
+        assertEquals(2, notifications)
+        assertEquals(2, clicks)
     }
 
     /** 水平激活后固定边缘指针，后续帧仍继续滚动。 */

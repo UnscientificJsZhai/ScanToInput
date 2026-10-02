@@ -85,8 +85,6 @@ configure<ApplicationExtension> {
 
     lint {
         abortOnError = true
-        sarifReport = true
-        htmlReport = true
         absolutePaths = false
     }
 }
@@ -96,6 +94,8 @@ configure<JacocoPluginExtension> {
 }
 
 tasks.withType<Test>().configureEach {
+    // Robolectric 的 API 37 共享内存初始化需要访问 JDK 的文件描述符接口。
+    jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
     extensions.configure<JacocoTaskExtension> {
         isIncludeNoLocationClasses = true
         excludes = listOf("jdk.internal.*")

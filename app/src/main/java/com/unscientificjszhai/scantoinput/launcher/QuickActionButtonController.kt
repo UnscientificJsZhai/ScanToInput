@@ -4,6 +4,7 @@ import android.view.View
 import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
 import android.widget.Button
+import androidx.core.view.isVisible
 import com.unscientificjszhai.scantoinput.actions.QuickAction
 
 /**
@@ -15,7 +16,7 @@ class QuickActionButtonController(
     private val button: Button,
     private val animationsEnabled: () -> Boolean
 ) {
-    private var targetVisible = button.visibility == View.VISIBLE
+    private var targetVisible = button.isVisible
     private var animationGeneration = 0L
     private var activeAnimation: Animation? = null
     private var disposed = false
@@ -39,7 +40,7 @@ class QuickActionButtonController(
         }
         if (targetVisible == visible) return
 
-        val wasVisible = button.visibility == View.VISIBLE
+        val wasVisible = button.isVisible
         targetVisible = visible
         cancelAnimation()
         if (visible) {

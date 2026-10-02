@@ -7,6 +7,7 @@ import android.inputmethodservice.InputMethodService
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.camera.view.PreviewView
 import androidx.camera.view.PreviewView.StreamState
@@ -255,7 +256,9 @@ class ScanInputMethodService : InputMethodService(), LifecycleOwner {
     override fun onCreateInputView(): View {
         val themedContext = android.view.ContextThemeWrapper(this, R.style.Theme_ScanToInput_IME)
         val dynamicContext = DynamicColors.wrapContextIfAvailable(themedContext)
-        val root = android.view.LayoutInflater.from(dynamicContext).inflate(R.layout.input_method, null)
+        // 系统稍后会把输入法根布局加入 FrameLayout，先生成正确的布局参数但不附着。
+        val parent = FrameLayout(dynamicContext)
+        val root = android.view.LayoutInflater.from(dynamicContext).inflate(R.layout.input_method, parent, false)
         cancelCameraRetry()
         previewView?.previewStreamState?.removeObservers(this)
         previewView = root.findViewById(R.id.preview_view)

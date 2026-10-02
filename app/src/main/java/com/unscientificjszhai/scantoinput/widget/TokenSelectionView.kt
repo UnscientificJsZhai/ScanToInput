@@ -20,6 +20,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.ScrollView
+import androidx.core.graphics.withTranslation
 import androidx.core.view.ViewCompat
 import com.unscientificjszhai.scantoinput.R
 import kotlin.math.ceil
@@ -264,13 +265,12 @@ class TokenSelectionView @JvmOverloads constructor(
         if (engine.tokens.isEmpty()) {
             val layout = placeholderLayout ?: return
             textPaint.color = tokenTextColor
-            val saved = canvas.save()
-            canvas.translate(
+            canvas.withTranslation(
                 paddingLeft.toFloat(),
                 paddingTop + maxOf(0f, (height - paddingTop - paddingBottom - layout.height) / 2f)
-            )
-            layout.draw(canvas)
-            canvas.restoreToCount(saved)
+            ) {
+                layout.draw(this)
+            }
             return
         }
         engine.fillVisibleTokenRange(
@@ -303,11 +303,10 @@ class TokenSelectionView @JvmOverloads constructor(
                     focusPaint
                 )
                 textPaint.color = if (selected) tokenSelectedTextColor else tokenTextColor
-                val saved = canvas.save()
-                canvas.translate(info.x + horizontalInset, info.y + tokenPaddingVertical)
-                canvas.clipRect(0, 0, layout.width, layout.height)
-                layout.draw(canvas)
-                canvas.restoreToCount(saved)
+                canvas.withTranslation(info.x + horizontalInset, info.y + tokenPaddingVertical) {
+                    clipRect(0, 0, layout.width, layout.height)
+                    layout.draw(this)
+                }
             }
             i++
         }
@@ -365,7 +364,12 @@ class TokenSelectionView @JvmOverloads constructor(
                         event.getX(pointer),
                         event.getY(pointer)
                     ) == TokenGestureState.PENDING && index == downToken
-                ) return performTokenClick(index)
+                ) {
+                    if (!toggleTokenSelection(index)) return false
+                    performClick()
+                    notifySelectionChanged()
+                    return true
+                }
                 val changed = engine.applyDragRange(index)
                 finishInteraction()
                 if (changed) notifySelectionChanged()
@@ -505,11 +509,20 @@ class TokenSelectionView @JvmOverloads constructor(
      * @return 有效 token 被切换时为 true。
      */
     internal fun performTokenClick(index: Int): Boolean {
-        finishInteraction()
-        if (!engine.setSelectionState(index, !engine.isSelected(index))) return false
+        if (!toggleTokenSelection(index)) return false
         performClick()
         notifySelectionChanged()
         return true
+    }
+
+    /**
+     * 结束当前手势并切换目标 token，供触摸和无障碍入口共用。
+     * @param index 目标 token 索引。
+     * @return 目标有效且选择状态发生变化时为 true。
+     */
+    private fun toggleTokenSelection(index: Int): Boolean {
+        finishInteraction()
+        return engine.setSelectionState(index, !engine.isSelected(index))
     }
 
     /**

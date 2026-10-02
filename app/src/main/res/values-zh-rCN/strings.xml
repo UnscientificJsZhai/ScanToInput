@@ -25,7 +25,6 @@
     <string name="camera_permission_rationale">ScanToInput 需要相机权限来扫描二维码。请授予权限以继续。</string>
     <string name="no_app_to_handle">未找到可处理该操作的应用</string>
     <string name="cannot_perform_action">无法执行该操作</string>
-    <string name="cannot_undo_safely">无法安全撤销</string>
     <string name="token_selection_placeholder">扫描二维码以读取文本</string>
 
     <string name="cd_camera_preview">相机预览</string>
