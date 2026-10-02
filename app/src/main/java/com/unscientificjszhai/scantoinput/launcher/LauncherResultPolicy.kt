@@ -26,6 +26,28 @@ class LauncherResultPolicy(private val unlockDelayMillis: Long = DEFAULT_UNLOCK_
     }
 
     /**
+     * 保存页面重建时需要保留的业务状态，不消费待处理结果。
+     * @return 当前结果、锁定状态及待处理结果的快照。
+     */
+    fun saveState(): LauncherResultSnapshot = LauncherResultSnapshot(
+        currentResult, pendingResult, isLocked, unlockScheduled, nonTextHintVisible
+    )
+
+    /**
+     * 恢复页面业务状态；剩余解锁时间由平台调度层恢复。
+     * @param snapshot 页面销毁前保存的业务快照。
+     * @return 用于重新绘制完整页面的更新指令。
+     */
+    fun restoreState(snapshot: LauncherResultSnapshot): LauncherResultUpdate {
+        currentResult = snapshot.currentResult
+        pendingResult = snapshot.pendingResult
+        isLocked = snapshot.isLocked
+        unlockScheduled = snapshot.unlockScheduled
+        nonTextHintVisible = snapshot.nonTextHintVisible
+        return update(resultChanged = true)
+    }
+
+    /**
      * 接收新的文本处理结果并计算 UI 更新指令。
      *
      * @param result 文本处理结果。
@@ -189,6 +211,22 @@ class LauncherResultPolicy(private val unlockDelayMillis: Long = DEFAULT_UNLOCK_
         const val DEFAULT_UNLOCK_DELAY_MILLIS: Long = 2_000L
     }
 }
+
+/**
+ * 页面重建所需的纯业务快照，不依赖 Android 的保存格式。
+ * @property currentResult 当前显示的结果。
+ * @property pendingResult 锁定期间缓存的最新结果。
+ * @property isLocked 结果区域是否锁定。
+ * @property unlockScheduled 是否正在等待解锁。
+ * @property nonTextHintVisible 是否显示非文本提示。
+ */
+data class LauncherResultSnapshot(
+    val currentResult: TextProcessingResult.Success?,
+    val pendingResult: TextProcessingResult.Success?,
+    val isLocked: Boolean,
+    val unlockScheduled: Boolean,
+    val nonTextHintVisible: Boolean
+)
 
 /**
  * 启动器结果区域渲染状态。

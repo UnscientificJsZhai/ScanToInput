@@ -23,7 +23,7 @@
         android:orientation="horizontal"
         app:layout_constraintGuide_percent="0.5" />
 
-    <ScrollView
+    <com.unscientificjszhai.scantoinput.widget.TokenSelectionScrollView
         android:id="@+id/result_container"
         android:layout_width="0dp"
         android:layout_height="0dp"
@@ -66,7 +66,7 @@
                 android:visibility="gone"
                 tools:visibility="visible" />
         </LinearLayout>
-    </ScrollView>
+    </com.unscientificjszhai.scantoinput.widget.TokenSelectionScrollView>
 
     <LinearLayout
         android:id="@+id/button_row"

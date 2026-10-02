@@ -25,7 +25,6 @@
     <string name="camera_permission_rationale">ScanToInput 需要相机权限来扫描二维码。请授予权限以继续。</string>
     <string name="no_app_to_handle">未找到可处理该操作的应用</string>
     <string name="cannot_perform_action">无法执行该操作</string>
-    <string name="cannot_undo_safely">无法安全撤销</string>
     <string name="token_selection_placeholder">扫描二维码以读取文本</string>
 
     <string name="cd_camera_preview">相机预览</string>
@@ -36,4 +35,12 @@
     <string name="cd_next_scan_button">允许扫描下一个相同的二维码</string>
     <string name="cd_space_button">输入空格</string>
     <string name="cd_enter_button">输入回车或执行操作</string>
+
+    <string name="invalid_wifi_config">Wi-Fi 配置无效</string>
+    <string name="unsupported_wifi_config">不支持此 Wi-Fi 配置</string>
+    <string name="invalid_calendar_event">日历事件或日期无效</string>
+    <string name="unsupported_calendar_time">不支持此日历时间格式</string>
+    <string name="unsupported_calendar_time_zone">不支持此日历时区</string>
+    <string name="invalid_action_link">操作链接无效</string>
+    <string name="token_accessibility_whitespace">空白或换行</string>
 </resources>

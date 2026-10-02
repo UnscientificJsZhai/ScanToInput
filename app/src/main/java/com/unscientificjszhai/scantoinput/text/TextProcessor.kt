@@ -2,166 +2,56 @@ package com.unscientificjszhai.scantoinput.text
 
 import android.icu.text.BreakIterator
 import com.unscientificjszhai.scantoinput.actions.QuickAction
+import java.util.Locale
 
-/**
- * 文本处理类，负责将原始扫码文本转换为 [TextProcessingResult]。
- */
+/** 共享文本规则的 Android ICU 薄适配器。 */
 object TextProcessor {
+    /**
+     * 校验原文，不创建 ICU 对象。
+     * @param text 扫描原文。
+     * @return 是否可以原样显示。
+     */
+    fun isDisplayableText(text: String?): Boolean = TextProcessingRules.isDisplayableText(text)
 
     /**
-     * 判断文本是否为可显示文本。
-     *
-     * @param text 原始文本。
-     * @return 如果是可显示文本返回 true，否则返回 false。
+     * 处理扫描原文。
+     * @param rawText 扫描原文。
+     * @return 模式识别和分词结果。
      */
-    fun isDisplayableText(text: String?): Boolean {
-        return !text.isNullOrEmpty()
-    }
+    fun process(rawText: String?): TextProcessingResult = TextProcessingRules.process(rawText, ::tokenize)
 
     /**
-     * 处理原始文本。
-     *
-     * @param rawText 原始文本。
-     * @return 处理结果。
+     * 识别原文快速操作。
+     * @param text 扫描原文。
+     * @return 快速操作或 null。
      */
-    fun process(rawText: String?): TextProcessingResult {
-        if (!isDisplayableText(rawText)) {
-            return TextProcessingResult.NonText
-        }
-
-        val text = rawText!!
-        val quickAction = detectQuickAction(text)
-
-        return if (quickAction != null) {
-            // 命中特定模式，不进行普通拆词
-            TextProcessingResult.Success(listOf(text), quickAction)
-        } else {
-            // 未命中，进行普通拆词
-            TextProcessingResult.Success(tokenize(text))
-        }
-    }
+    fun detectQuickAction(text: String): QuickAction? = TextProcessingRules.detectQuickAction(text)
 
     /**
-     * 检测特定模式。
-     *
-     * @param text 文本。
-     * @return 匹配的快速操作，未匹配返回 null。
+     * 收集词与字素边界，再由纯规则完成标点和空白处理。
+     * @param text 待分词原文。
+     * @return 无损 token 列表。
      */
-    fun detectQuickAction(text: String): QuickAction? {
-        // 1. Wi-Fi
-        if (text.startsWith("WIFI:", ignoreCase = true)) {
-            val ssid = Regex("S:([^;]+)", RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(1)
-            if (ssid != null) {
-                val password = Regex("P:([^;]*)", RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(1)
-                val encryption = Regex("T:([^;]*)", RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(1)
-                return QuickAction.Wifi(text, ssid, password, encryption)
-            }
-        }
-
-        // 2. vCard
-        if (text.contains("BEGIN:VCARD", ignoreCase = true) && 
-            text.contains("END:VCARD", ignoreCase = true)) {
-            return QuickAction.VCard(text)
-        }
-
-        // 3. Calendar Event
-        if (text.contains("BEGIN:VEVENT", ignoreCase = true) && 
-            text.contains("END:VEVENT", ignoreCase = true)) {
-            return QuickAction.CalendarEvent(text)
-        }
-
-        // 4. URL
-        val urlRegex = Regex("^(https?://|www\\.)[\\w-.]+(\\.[a-zA-Z]{2,})?(:\\d+)?(/\\S*)?$", RegexOption.IGNORE_CASE)
-        if (urlRegex.find(text) != null) {
-            return QuickAction.Url(text)
-        }
-
-        // 5. Email
-        if (text.startsWith("mailto:", ignoreCase = true)) {
-            val address = text.substringAfter("mailto:").substringBefore("?")
-            return QuickAction.Email(text, address)
-        }
-        val emailRegex = Regex("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$")
-        if (emailRegex.matches(text)) {
-            return QuickAction.Email(text, text)
-        }
-
-        // 6. Phone
-        if (text.startsWith("tel:", ignoreCase = true)) {
-            val number = text.substringAfter("tel:")
-            return QuickAction.Phone(text, number)
-        }
-        val phoneRegex = Regex("^\\+?[0-9]{7,15}$")
-        if (phoneRegex.matches(text)) {
-            return QuickAction.Phone(text, text)
-        }
-
-        // 7. SMS
-        if (text.startsWith("smsto:", ignoreCase = true) || text.startsWith("sms:", ignoreCase = true)) {
-            val parts = text.split(":")
-            val number = parts.getOrNull(1) ?: ""
-            val body = if (parts.size > 2) text.substringAfter("${parts[0]}:${parts[1]}:") else null
-            return QuickAction.Sms(text, number, body)
-        }
-
-        // 8. Geo
-        if (text.startsWith("geo:", ignoreCase = true)) {
-            val query = text.substringAfter("geo:")
-            return QuickAction.Geo(text, query)
-        }
-
-        // 9. 应用深链
-        if (isAppDeepLink(text)) {
-            return QuickAction.Url(text)
-        }
-
-        return null
-    }
+    fun tokenize(text: String): List<String> = TextProcessingRules.tokenize(
+        text,
+        boundaries(BreakIterator.getWordInstance(Locale.getDefault()), text).toSet(),
+        boundaries(BreakIterator.getCharacterInstance(Locale.getDefault()), text)
+    )
 
     /**
-     * 判断文本是否为可通过外部应用打开的深链 URI。
-     *
-     * @param text 文本。
-     * @return 如果文本包含标准 URI scheme 且不属于应用不应转发的本地资源 scheme，返回 true。
+     * 收集本次调用独占的 ICU 迭代器边界。
+     * @param iterator 词或字素迭代器。
+     * @param text 原文。
+     * @return 含首尾的 UTF-16 边界列表。
      */
-    private fun isAppDeepLink(text: String): Boolean {
-        val schemeMatch = Regex("^[a-zA-Z][a-zA-Z0-9+.-]*:").find(text) ?: return false
-        val scheme = schemeMatch.value.dropLast(1).lowercase()
-        return scheme != "file" && scheme != "content"
-    }
-
-    /**
-     * 普通拆词。
-     *
-     * @param text 文本。
-     * @return token 列表。
-     */
-    fun tokenize(text: String): List<String> {
-        val tokens = mutableListOf<String>()
-        val boundary = BreakIterator.getWordInstance()
-        boundary.setText(text)
-
-        var start = boundary.first()
-        var end = boundary.next()
-
-        while (end != BreakIterator.DONE) {
-            val word = text.substring(start, end)
-            
-            // 处理合并连续空格和换行
-            if (word.isBlank()) {
-                if (tokens.isNotEmpty() && tokens.last().isBlank()) {
-                    tokens[tokens.size - 1] = tokens.last() + word
-                } else {
-                    tokens.add(word)
-                }
-            } else {
-                tokens.add(word)
-            }
-
-            start = end
-            end = boundary.next()
+    private fun boundaries(iterator: BreakIterator, text: String): List<Int> {
+        iterator.setText(text)
+        val result = mutableListOf<Int>()
+        var boundary = iterator.first()
+        while (boundary != BreakIterator.DONE) {
+            result.add(boundary)
+            boundary = iterator.next()
         }
-
-        return tokens
+        return result
     }
 }
