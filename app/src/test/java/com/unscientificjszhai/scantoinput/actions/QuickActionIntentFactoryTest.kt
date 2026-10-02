@@ -19,7 +19,7 @@ import org.robolectric.util.ReflectionHelpers
 
 /** 真实 Android Intent 与 Wi-Fi 参数映射回归。 */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34, 37])
 class QuickActionIntentFactoryTest {
     /** URL、国际化主机和空路径自定义启动保持完整 data。 */
     @Test

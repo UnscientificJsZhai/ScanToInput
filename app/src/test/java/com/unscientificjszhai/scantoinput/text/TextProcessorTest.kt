@@ -10,7 +10,7 @@ import org.robolectric.annotation.Config
 
 /** 真实 Android ICU 薄适配及共享规则的回归。 */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34, 37])
 class TextProcessorTest {
 
     /** 验证真实适配入口的既有行为。 */

@@ -33,7 +33,7 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run unit tests and verify core coverage
+      - name: Run API 34 and API 37 tests and verify core coverage
         run: ./gradlew test :app:verifyCoreCoverage
 
   android-lint:

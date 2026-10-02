@@ -18,7 +18,7 @@ import org.robolectric.annotation.Config
 
 /** 使用真实 Editable 和平台 SurroundingText 验证输入适配器的安全边界。 */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [34, 37], application = Application::class)
 class InputConnectionEditorAdapterTest {
     /** 真实 BaseInputConnection 的非零 offset 必须保留绝对位置和 UTF-16 长度。 */
     @Test

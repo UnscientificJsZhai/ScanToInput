@@ -16,7 +16,7 @@ import org.robolectric.util.ReflectionHelpers
 
 /** 用真实 Android 按钮及受控动画回调验证动画所有权。 */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34, 37])
 class QuickActionButtonControllerTest {
     /** 初始空态不播放动画，也不重复修改按钮。 */
     @Test

@@ -17,7 +17,7 @@ import org.robolectric.annotation.LooperMode
 
 /** 使用原生文字布局验证换行、字素、尺寸约束及缓存。 */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [34, 37], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class TokenSelectionRenderingTest {

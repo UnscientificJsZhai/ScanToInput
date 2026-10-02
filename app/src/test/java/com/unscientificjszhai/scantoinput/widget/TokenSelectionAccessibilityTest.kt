@@ -20,7 +20,7 @@ import org.robolectric.annotation.LooperMode
 
 /** 通过实际平台 provider 验证文本、虚拟身份、焦点和选择操作。 */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [34, 37], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class TokenSelectionAccessibilityTest {

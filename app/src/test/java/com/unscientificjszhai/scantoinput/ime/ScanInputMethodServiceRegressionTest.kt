@@ -21,7 +21,7 @@ import org.robolectric.util.ReflectionHelpers
 
 /** 验证真实输入法入口的历史故障，使用可计数的编辑器连接。 */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [34, 37], application = Application::class)
 class ScanInputMethodServiceRegressionTest {
     /** 输入法根布局保持未附着状态，并携带系统 FrameLayout 所需的宽高参数。 */
     @Test

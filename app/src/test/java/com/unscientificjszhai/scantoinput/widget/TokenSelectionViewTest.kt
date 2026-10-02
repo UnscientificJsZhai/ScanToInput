@@ -28,10 +28,31 @@ import java.time.Duration
 
 /** 使用真实布局、触摸分发、原生画布及无障碍接口验证选词控件。 */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [34, 37], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class TokenSelectionViewTest {
+    /** 保存的选择索引独立于原控件，并在替换结果后忽略无效或重复索引。 */
+    @Test
+    fun selectedIndicesRestoreWithoutDuplicatingNotifications() {
+        val f = fixture(listOf("first", " ", "last"))
+        var notifications = 0
+        f.view.onSelectionChangedListener = { notifications++ }
+        f.view.restoreSelectedTokens(intArrayOf(2, 0, 2, -1, 100))
+        assertArrayEquals(intArrayOf(0, 2), f.view.selectedTokenIndices())
+        assertEquals("firstlast", f.view.getSelectedText())
+        assertEquals(1, notifications)
+        val saved = f.view.selectedTokenIndices()
+        saved[0] = 1
+        assertArrayEquals(intArrayOf(0, 2), f.view.selectedTokenIndices())
+        f.view.setTokens(listOf("new"))
+        f.view.restoreSelectedTokens(intArrayOf(2, 0))
+        assertEquals("new", f.view.getSelectedText())
+        f.view.restoreSelectedTokens(intArrayOf())
+        assertFalse(f.view.hasSelection())
+        assertArrayEquals(intArrayOf(), f.view.selectedTokenIndices())
+    }
+
     /** 显式暂停 vsync，避免框架自动推进至全部帧结束。 */
     @Before
     fun configureFrameClock() {

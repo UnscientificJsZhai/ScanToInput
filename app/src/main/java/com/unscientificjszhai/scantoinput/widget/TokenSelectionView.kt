@@ -187,6 +187,32 @@ class TokenSelectionView @JvmOverloads constructor(
     /** @return 是否有选择。 */
     fun hasSelection(): Boolean = engine.hasSelection()
 
+    /**
+     * 仅在页面保存时提取选择索引，不参与绘制和触摸高频路径。
+     * @return 按原文顺序排列的已选择 token 索引。
+     */
+    fun selectedTokenIndices(): IntArray {
+        val indices = IntArray(engine.tokens.size)
+        var count = 0
+        for (index in engine.tokens.indices) {
+            if (engine.isSelected(index)) indices[count++] = index
+        }
+        return indices.copyOf(count)
+    }
+
+    /**
+     * 在恢复 token 后恢复选择，并统一刷新无障碍状态。
+     * @param indices 页面保存的选择索引，越界索引会被忽略。
+     */
+    fun restoreSelectedTokens(indices: IntArray) {
+        finishInteraction()
+        var changed = engine.clearSelection()
+        for (index in indices) {
+            if (engine.setSelectionState(index, true)) changed = true
+        }
+        if (changed) notifySelectionChanged()
+    }
+
     /** 清空选择，同时清理未完成手势及帧。 */
     fun clearSelection() {
         finishInteraction()

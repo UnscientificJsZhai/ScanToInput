@@ -23,7 +23,7 @@ import org.robolectric.util.ReflectionHelpers
 
 /** 使用真实 Hilt 服务创建、XML View 附着和 Editable 验证平台接线。 */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = HiltApplication::class)
+@Config(sdk = [34, 37], application = HiltApplication::class)
 class ScanInputMethodServiceLifecycleTest {
     /** 编辑器连续重启必须完成新 view-start 握手，并保留 Service 级去重。 */
     @Test

@@ -2,7 +2,7 @@ package com.unscientificjszhai.scantoinput.scanner
 
 import android.app.Application
 import android.os.Looper
-import com.google.mlkit.common.MlKit
+import com.google.mlkit.common.sdkinternal.MlKitContext
 import androidx.camera.core.Preview
 import androidx.camera.view.PreviewView
 import java.util.concurrent.CountDownLatch
@@ -14,10 +14,11 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import org.robolectric.util.ReflectionHelpers
 
 /** 在真实控制器、CameraX 用例及 Google Task 上验证异步生命周期。 */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [34, 37], application = Application::class)
 class BarcodeScannerControllerTest {
     /** 已经识别的任务在停止后完成也必须关闭帧且丢弃结果。 */
     @Test
@@ -243,13 +244,18 @@ class BarcodeScannerControllerTest {
     /** ML Kit 适配器遇到不含底层图像的帧返回空结果，关闭仍由控制器负责。 */
     @Test
     fun mlKitAdapterHandlesMissingImage() {
-        MlKit.initialize(RuntimeEnvironment.getApplication())
+        val previousContext = ReflectionHelpers.getStaticField<MlKitContext?>(MlKitContext::class.java, "zzb")
+        MlKitContext.initializeIfNeeded(RuntimeEnvironment.getApplication())
         val recognizer = MlKitFrameRecognizer()
-        val frame = TestFrame()
-        val task = recognizer.recognize(frame.proxy)
-        assertTrue(task.isSuccessful)
-        assertNull(task.result)
-        assertEquals(0, frame.closes)
-        recognizer.close()
+        try {
+            val frame = TestFrame()
+            val task = recognizer.recognize(frame.proxy)
+            assertTrue(task.isSuccessful)
+            assertNull(task.result)
+            assertEquals(0, frame.closes)
+        } finally {
+            recognizer.close()
+            ReflectionHelpers.setStaticField(MlKitContext::class.java, "zzb", previousContext)
+        }
     }
 }

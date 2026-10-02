@@ -42,12 +42,12 @@ val environmentKeystoreFile = if (signingValues.values.any { !it.isNullOrEmpty()
 
 configure<ApplicationExtension> {
     namespace = "com.unscientificjszhai.scantoinput"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.unscientificjszhai.scantoinput"
         minSdk = 31
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0"
 
@@ -94,12 +94,39 @@ configure<JacocoPluginExtension> {
 }
 
 tasks.withType<Test>().configureEach {
+    // 不同 Android SDK 的 Robolectric 原生运行时必须使用独立测试 JVM。
+    systemProperty("robolectric.enabledSdks", "37")
     // Robolectric 的 API 37 共享内存初始化需要访问 JDK 的文件描述符接口。
     jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
     extensions.configure<JacocoTaskExtension> {
         isIncludeNoLocationClasses = true
         excludes = listOf("jdk.internal.*")
     }
+}
+
+val testDebugUnitTestApi34 = tasks.register<Test>("testDebugUnitTestApi34") {
+    group = "verification"
+    description = "在独立 JVM 中运行 API 34 回归测试"
+    val targetTests = tasks.named<Test>("testDebugUnitTest").get()
+    // 复用 AGP 生成的测试类、资源配置及依赖；先完成目标 SDK 测试与编译。
+    dependsOn(targetTests)
+    testClassesDirs = targetTests.testClassesDirs
+    classpath = targetTests.classpath
+    workingDir = targetTests.workingDir
+    javaLauncher.set(targetTests.javaLauncher)
+    setJvmArgs(targetTests.jvmArgs)
+    minHeapSize = targetTests.minHeapSize
+    maxHeapSize = targetTests.maxHeapSize
+    systemProperties(targetTests.systemProperties)
+    systemProperty("robolectric.enabledSdks", "34")
+    // AGP 还跟踪资源 APK、合并清单和 assets，资源变更必须使旧平台回归失效。
+    inputs.files(targetTests.inputs.files)
+        .withPropertyName("androidPlatformInputs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
+tasks.configureEach {
+    if (name == "test") dependsOn(testDebugUnitTestApi34)
 }
 
 /**
@@ -141,7 +168,10 @@ val coreCoverageReport = tasks.register<CoreCoverageReportTask>("coreCoverageRep
     group = "verification"
     description = "生成核心业务的 JaCoCo XML 和 HTML 覆盖率报告"
     dependsOn("validateCoreCoverageInputs")
-    executionData.setFrom(layout.buildDirectory.file("jacoco/testDebugUnitTest.exec"))
+    executionData.setFrom(
+        layout.buildDirectory.file("jacoco/testDebugUnitTest.exec"),
+        layout.buildDirectory.file("jacoco/testDebugUnitTestApi34.exec")
+    )
     sourceDirectories.setFrom(files("src/main/java", "src/main/kotlin"))
     classDirectories.setFrom(
         inputClassDirectories.map { directories ->
@@ -180,11 +210,11 @@ extensions.configure<ApplicationAndroidComponentsExtension> {
 tasks.register("validateCoreCoverageInputs") {
     group = "verification"
     description = "拒绝缺少执行数据或没有核心业务类的覆盖率输入"
-    dependsOn("testDebugUnitTest")
+    dependsOn(testDebugUnitTestApi34)
     doLast {
         val report = coreCoverageReport.get()
-        check(report.executionData.files.any { it.isFile && it.length() > 0L }) {
-            "核心覆盖率缺少非空的 testDebugUnitTest 执行数据"
+        check(report.executionData.files.all { it.isFile && it.length() > 0L }) {
+            "核心覆盖率必须同时包含 API 34 与 API 37 的非空执行数据"
         }
         check(report.classDirectories.files.any { it.isFile && it.extension == "class" }) {
             "核心覆盖率范围没有业务类，禁止生成空报告"
@@ -278,4 +308,5 @@ dependencies {
     testImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.test.core)
 }

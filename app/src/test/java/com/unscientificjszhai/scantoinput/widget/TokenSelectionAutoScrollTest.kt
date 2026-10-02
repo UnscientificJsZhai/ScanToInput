@@ -21,7 +21,7 @@ import java.time.Duration
 
 /** 用有限真实帧推进验证边缘滚动和统一终止，而不读取私有手势状态。 */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [34, 37], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class TokenSelectionAutoScrollTest {

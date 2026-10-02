@@ -23,7 +23,7 @@ import org.robolectric.util.ReflectionHelpers
 
 /** 从真实扫码结果入口验证按钮动画与当前业务结果的一致性。 */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = HiltApplication::class)
+@Config(sdk = [34, 37], application = HiltApplication::class)
 class MainActivityAnimationTest {
     /** 原退出动画完成时，不能隐藏后来扫码得到的有效操作。 */
     @Test
@@ -110,8 +110,15 @@ class MainActivityAnimationTest {
             controller = Robolectric.buildActivity(MainActivity::class.java).setup()
             activity = controller.get()
             button = activity.findViewById(R.id.quick_action_button)
-            assertEquals("android.content.pm.action.REQUEST_PERMISSIONS", Shadows.shadowOf(activity).nextStartedActivity.action)
-            assertNull(Shadows.shadowOf(activity).nextStartedActivity)
+            val activityShadow = Shadows.shadowOf(activity)
+            val permissionRequest = activityShadow.lastRequestedPermission
+            assertNotNull(permissionRequest)
+            assertArrayEquals(arrayOf(Manifest.permission.CAMERA), permissionRequest.requestedPermissions)
+            // 旧平台会记录权限 Intent；新平台应通过权限请求记录验证相同语义。
+            activityShadow.nextStartedActivity?.let { permissionIntent ->
+                assertEquals("android.content.pm.action.REQUEST_PERMISSIONS", permissionIntent.action)
+            }
+            assertNull(activityShadow.nextStartedActivity)
         }
 
         /**

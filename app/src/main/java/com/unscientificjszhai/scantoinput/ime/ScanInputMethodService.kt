@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.inputmethodservice.InputMethodService
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.widget.FrameLayout
@@ -14,6 +15,7 @@ import androidx.camera.view.PreviewView.StreamState
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -302,9 +304,15 @@ class ScanInputMethodService : InputMethodService(), LifecycleOwner {
         }
 
         val navigationBarSpacer = root.findViewById<View>(R.id.navigation_bar_spacer)
-        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
-            navigationBarSpacer.layoutParams.height = navBars.bottom
+            val safeArea = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            view.updatePadding(left = safeArea.left, right = safeArea.right)
+            // Space 的 wrap_content 可真实测得零高；0dp 会被约束布局解释为可拉伸。
+            navigationBarSpacer.layoutParams.height = if (navBars.bottom == 0)
+                ViewGroup.LayoutParams.WRAP_CONTENT else navBars.bottom
             navigationBarSpacer.requestLayout()
             insets
         }
@@ -328,6 +336,9 @@ class ScanInputMethodService : InputMethodService(), LifecycleOwner {
         updateUndoButton()
         return root
     }
+
+    // 横屏继续使用相机输入视图，避免系统全屏提取界面挤占宿主编辑器。
+    override fun onEvaluateFullscreenMode(): Boolean = false
 
     override fun onWindowShown() {
         super.onWindowShown()

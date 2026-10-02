@@ -30,7 +30,7 @@ import org.robolectric.util.ReflectionHelpers
 
 /** 使用真实 Activity、Hilt 和按钮验证 Intent 创建失败的界面恢复。 */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = HiltApplication::class)
+@Config(sdk = [34, 37], application = HiltApplication::class)
 class MainActivityQuickActionTest {
     /** 配置错误只显示固定提示，不启动系统 Activity。 */
     @Test
@@ -124,8 +124,15 @@ class MainActivityQuickActionTest {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         try {
             val activity = controller.get()
-            assertEquals("android.content.pm.action.REQUEST_PERMISSIONS", Shadows.shadowOf(activity).nextStartedActivity.action)
-            assertNull(Shadows.shadowOf(activity).nextStartedActivity)
+            val activityShadow = Shadows.shadowOf(activity)
+            val permissionRequest = activityShadow.lastRequestedPermission
+            assertNotNull(permissionRequest)
+            assertArrayEquals(arrayOf(Manifest.permission.CAMERA), permissionRequest.requestedPermissions)
+            // 旧平台会记录权限 Intent；新平台应通过权限请求记录验证相同语义。
+            activityShadow.nextStartedActivity?.let { permissionIntent ->
+                assertEquals("android.content.pm.action.REQUEST_PERMISSIONS", permissionIntent.action)
+            }
+            assertNull(activityShadow.nextStartedActivity)
             block(activity)
         } finally {
             controller.pause().stop().destroy()

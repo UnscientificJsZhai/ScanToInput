@@ -12,6 +12,59 @@ import org.junit.Test
 /** 通过公开事件和渲染快照验证锁定、等待、复制与非文本处理规则。 */
 class LauncherResultPolicyTest {
 
+    /** 保存与恢复必须保留选择锁定、非文本提示、当前操作和最新待处理结果。 */
+    @Test
+    fun restoreLockedStateKeepsPendingResultAndHint() {
+        val original = LauncherResultPolicy()
+        val current = success("https://example.com", QuickAction.Url("https://example.com"))
+        val pending = success("pending")
+        original.onProcessedResult(current)
+        original.onSelectionChanged(true)
+        original.onProcessedResult(pending)
+        original.onProcessedResult(TextProcessingResult.NonText)
+
+        val restored = LauncherResultPolicy()
+        val update = restored.restoreState(original.saveState())
+        assertEquals(original.currentState(), update.renderState)
+        assertTrue(update.resultChanged)
+        assertNull(update.scheduleUnlockDelayMillis)
+        assertFalse(update.cancelUnlock)
+        assertEquals(current.tokens.joinToString(""), restored.resolveCopyText(false, ""))
+        assertEquals(pending, restored.onUnlockTimeout().renderState.currentResult)
+        assertFalse(restored.currentState().nonTextHintVisible)
+    }
+
+    /** 重建期间不得消费等待结果或重新安排完整的解锁窗口。 */
+    @Test
+    fun restoreWaitingStateDoesNotRestartUnlock() {
+        val original = LauncherResultPolicy()
+        original.onProcessedResult(success("old"))
+        original.onSelectionChanged(true)
+        original.onProcessedResult(success("new"))
+        original.onSelectionChanged(false)
+        val saved = original.saveState()
+        assertTrue(saved.unlockScheduled)
+
+        val restored = LauncherResultPolicy()
+        restored.restoreState(saved)
+        assertNull(restored.onSelectionChanged(false).scheduleUnlockDelayMillis)
+        assertEquals("new", restored.onUnlockTimeout().renderState.currentResult?.tokens?.joinToString(""))
+    }
+
+    /** 空页面和未锁定的普通结果均可完整恢复。 */
+    @Test
+    fun restoreEmptyAndUnlockedStates() {
+        val original = LauncherResultPolicy()
+        val restored = LauncherResultPolicy()
+        restored.onProcessedResult(success("discarded"))
+        restored.restoreState(original.saveState())
+        assertEquals(original.currentState(), restored.currentState())
+        assertFalse(restored.saveState().unlockScheduled)
+        original.onProcessedResult(success("visible"))
+        restored.restoreState(original.saveState())
+        assertEquals(original.currentState(), restored.currentState())
+    }
+
     /** 相同全文的不同分词结果保留当前显示结果。 */
     @Test
     fun sameContentDoesNotRefreshCurrentResult() {
