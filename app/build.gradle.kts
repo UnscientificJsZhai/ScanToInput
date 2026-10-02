@@ -82,6 +82,13 @@ configure<ApplicationExtension> {
     }
 
     testOptions.unitTests.isIncludeAndroidResources = true
+
+    lint {
+        abortOnError = true
+        sarifReport = true
+        htmlReport = true
+        absolutePaths = false
+    }
 }
 
 configure<JacocoPluginExtension> {
